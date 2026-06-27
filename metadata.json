@@ -1,0 +1,6 @@
+{
+  "name": "UAV Flight Path Planner and Telemetry Dashboard",
+  "description": "Autonomous drone delivery mission control with obstacle avoidance path planning, live hardware metrics, and Spring Boot compatible telemetry exporter logs.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
