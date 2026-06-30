@@ -46,7 +46,6 @@ function createGeoJSONCircle(center: [number, number], radiusInMeters: number, p
 }
 
 const CARTO_VECTOR_DARK_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
-const CARTO_VECTOR_LIGHT_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
 export default function MapPane({
   apiKey,
@@ -158,7 +157,7 @@ export default function MapPane({
     // Create the MapLibre map instance with 3D default angles (uses [longitude, latitude])
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: CARTO_VECTOR_LIGHT_STYLE,
+      style: CARTO_VECTOR_DARK_STYLE,
       center: [startLoc.lng, startLoc.lat],
       zoom: 14.5,
       pitch: 55,       // High-fidelity 3D tilt
