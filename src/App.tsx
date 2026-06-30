@@ -372,7 +372,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-sm font-bold tracking-tight text-white uppercase flex items-center">
-                SkyNav Avionics Systems
+                Autonomous Drone Nav System
                 <span className="text-cyan-400 text-[9px] font-mono ml-2 bg-white/5 px-2 py-0.5 rounded border border-white/10">v4.2.0-STABLE</span>
               </h1>
               <p className="text-[10px] text-slate-400 font-mono">Autonomous Drone Mission Control · LiDAR · ROS2 FastAPI Bridge</p>
