@@ -18,3 +18,35 @@ View your app in AI Studio: https://ai.studio/apps/9ffbfceb-35ae-42d4-a785-2b6d0
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+
+
+
+┌─────────────────────────────────────────────────┐
+│  UAV  SkyNav Avionics Systems        ○ SIM MODE │ ← header badge
+│                                   PORTAL SECURE  │
+├──────────────────────────┬──────────────────────┤
+│                          │  Mission Control      │
+│   MapLibre Map           │  [IDLE] [○ SIM MODE]  │
+│   (click to set dest)    │                       │
+│                          │  [Launch Mission]     │
+│                          │  [Emergency Override] │
+├──────────────────────────┴──────────────────────┤
+│   Telemetry Log Stream                          │
+└─────────────────────────────────────────────────┘
+
+npm install
+
+npm run dev
+
+# Open the app directly in a new browser tab
+# Type this URL directly in your browser address bar:
+http://localhost:5173
+
+pip install fastapi uvicorn
+
+# Run the bridge
+cd ~/drone_ws/src/autonomous_drone_ros2
+python backend/main.py
+
+
