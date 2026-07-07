@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadWaypoints, abortMission, getMissionStatus } from './api';
+import { uploadWaypoints, abortMission, getMissionStatus, armDrone } from './api';
 // NOTE: We import our api functions but rename the local startMission
 // to avoid conflict with the imported one
 import { startMission as ros2Start } from './api';
@@ -20,6 +20,9 @@ const API_KEY =
   (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY ||
   '';
 const hasValidKey = Boolean(API_KEY) && API_KEY !== 'YOUR_API_KEY' && API_KEY !== '';
+
+const TARGET_ALTITUDE_M = 2.5;
+const ABORT_ALTITUDE_M  = 3.0;
 
 const STATIC_OBSTACLES: Obstacle[] = [
   { id: "obs_crane_1",  lat: 9.969200, lng: 76.244800, radiusMeters: 45, heightMeters: 35, type: "Harbour Gantry Crane" },
@@ -50,6 +53,7 @@ export default function App() {
 
   // ── ROS2 connection state (NEW) ─────────────────────
   const [ros2Connected, setRos2Connected] = useState<boolean>(false);
+  const [droneStatus,   setDroneStatus]   = useState<string>('DISCONNECTED');
 
   // ── Simulation ──────────────────────────────────────
   const [simulationWindSpeed, setSimulationWindSpeed] = useState<number>(8.5);
@@ -82,6 +86,7 @@ export default function App() {
   const mainTickerInterval = useRef<NodeJS.Timeout | null>(null);
   const logTickerDivider   = useRef(0);
   const degToMeter         = 111000;
+  const didInitialGpsSync  = useRef(false);
 
   // ── GPS sync ────────────────────────────────────────
   const syncLaptopLocation = () => {
@@ -123,12 +128,45 @@ export default function App() {
     );
   };
 
-  useEffect(() => { syncLaptopLocation(); }, []);
+  useEffect(() => {
+    // Guard against React 18 StrictMode's dev-only double-invoke of mount
+    // effects, which would otherwise fire the geolocation request twice.
+    if (didInitialGpsSync.current) return;
+    didInitialGpsSync.current = true;
+    syncLaptopLocation();
+  }, []);
   useEffect(() => { if (startLoc && destLoc) calculateFlightPath(); }, [startLoc, destLoc, obstacles]);
 
-  // ── Simulation tick ─────────────────────────────────
+  // ── Continuous laptop GPS tracking ───────────────────
+  // Keeps dronePos following the real device location while on the ground.
+  // Stops deferring here once ROS2 telemetry takes over, or once a mission
+  // is actually EN_ROUTE — at that point dronePos is owned by real MAVROS
+  // telemetry or the simulated flight-path ticker, not raw device GPS.
   useEffect(() => {
-    if (flightState === FlightState.EN_ROUTE || flightState === FlightState.EMERGENCY_LANDING) {
+    if (!('geolocation' in navigator)) return;
+    if (ros2Connected) return;
+    if (flightState !== FlightState.IDLE && flightState !== FlightState.PLANNING) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setDronePos(prev => ({
+          lat:     position.coords.latitude,
+          lng:     position.coords.longitude,
+          heading: prev.heading,
+        }));
+      },
+      () => { /* ignore transient watch errors — last known dronePos stands */ },
+      { enableHighAccuracy: true, maximumAge: 2000 }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [ros2Connected, flightState]);
+
+  // ── Simulation tick ─────────────────────────────────
+  // Only drives dronePos when ROS2 isn't connected — otherwise this fake
+  // movement fights the real MAVROS-fed position from the status poll below.
+  useEffect(() => {
+    if (!ros2Connected && (flightState === FlightState.EN_ROUTE || flightState === FlightState.EMERGENCY_LANDING)) {
       mainTickerInterval.current = setInterval(handleSimulationTick, 150);
     } else {
       if (mainTickerInterval.current) {
@@ -137,7 +175,7 @@ export default function App() {
       }
     }
     return () => { if (mainTickerInterval.current) clearInterval(mainTickerInterval.current); };
-  }, [flightState, plannedPath, currentPathIndex]);
+  }, [flightState, plannedPath, currentPathIndex, ros2Connected]);
 
   // ── ROS2 status polling (NEW) ───────────────────────
   useEffect(() => {
@@ -145,14 +183,19 @@ export default function App() {
       try {
         const status = await getMissionStatus();
         setRos2Connected(true);
+        setDroneStatus(status.drone_status || 'DISCONNECTED');
 
-        // Update drone position from real ROS2 if available
-        if (status.lat && status.lon) {
-          setDronePos(prev => ({ ...prev, lat: status.lat, lng: status.lon }));
+        // Update drone position + heading from real MAVROS telemetry
+        if (typeof status.lat === 'number' && typeof status.lon === 'number') {
+          setDronePos(prev => ({
+            lat:     status.lat,
+            lng:     status.lon,
+            heading: typeof status.heading === 'number' ? status.heading : prev.heading,
+          }));
         }
 
         // Update altitude from ROS2
-        if (status.altitude) {
+        if (typeof status.altitude === 'number') {
           setSensors(prev => ({ ...prev, barometerAltitudeM: status.altitude }));
         }
 
@@ -161,14 +204,29 @@ export default function App() {
           setFlightState(FlightState.LANDED_SAFE);
           addNewLogEntry(FlightState.LANDED_SAFE, "ROS2: Mission complete — drone landed.");
         }
-        if (status.mission_state === "MISSION_ABORT") {
+        if (status.mission_state === "MISSION_ABORT" && flightState !== FlightState.EMERGENCY_LANDING) {
           setFlightState(FlightState.EMERGENCY_LANDING);
           addNewLogEntry(FlightState.EMERGENCY_LANDING, "ROS2: Mission aborted by system.");
+        }
+
+        // Safety: abort if altitude overshoots the 2.5m target by ~0.5m
+        if (typeof status.altitude === 'number' &&
+            status.altitude >= ABORT_ALTITUDE_M &&
+            flightState === FlightState.EN_ROUTE) {
+          addNewLogEntry(FlightState.EMERGENCY_LANDING,
+            `SAFETY: Altitude ${status.altitude.toFixed(1)}m exceeded ${ABORT_ALTITUDE_M}m limit — aborting.`);
+          setFlightState(FlightState.EMERGENCY_LANDING);
+          try {
+            await abortMission();
+          } catch {
+            // Backend unreachable — local state already reflects the abort
+          }
         }
 
       } catch {
         // Backend not reachable — simulation mode
         setRos2Connected(false);
+        setDroneStatus('DISCONNECTED');
       }
     }, 500);
     return () => clearInterval(interval);
@@ -215,7 +273,7 @@ export default function App() {
       await uploadWaypoints([{
         lat:   destLoc.lat,
         lon:   destLoc.lng,
-        alt:   5.0,
+        alt:   TARGET_ALTITUDE_M,
         label: "B",
       }]);
       await ros2Start();
@@ -224,6 +282,16 @@ export default function App() {
     } catch {
       addNewLogEntry(FlightState.EN_ROUTE,
         "ROS2: Backend not reachable — running in simulation mode only.");
+    }
+  };
+
+  // ── Arm drone ────────────────────────────────────────
+  const armDroneHandler = async () => {
+    try {
+      await armDrone();
+      addNewLogEntry(flightState, "ROS2: ARM command sent to drone.");
+    } catch {
+      addNewLogEntry(flightState, "ROS2: Backend not reachable — cannot arm.");
     }
   };
 
@@ -440,6 +508,8 @@ export default function App() {
               onSyncLaptopLocation={syncLaptopLocation}
               missionTimeSec={missionTimeSec}
               ros2Connected={ros2Connected}
+              droneStatus={droneStatus}
+              onArmDrone={armDroneHandler}
             />
             <TelemetryInsights logs={logs} />
           </div>
@@ -453,6 +523,7 @@ export default function App() {
             destLoc={destLoc}
             obstacles={obstacles}
             sensors={sensors}
+            ros2Connected={ros2Connected}
           />
         </section>
 

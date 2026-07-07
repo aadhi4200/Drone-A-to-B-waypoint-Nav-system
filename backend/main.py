@@ -22,7 +22,9 @@ import json, threading, uvicorn, asyncio
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173",
+    allow_origins=["http://localhost:3000",
+                   "http://127.0.0.1:3000",
+                   "http://localhost:5173",
                    "http://127.0.0.1:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,11 +32,15 @@ app.add_middleware(
 
 ros_node = None
 
+# ── Altitude safety limits ────────────────────────
+TARGET_ALTITUDE_M = 2.5
+ABORT_ALTITUDE_M   = 3.0
+
 # ── Data models ───────────────────────────────────
 class Waypoint(BaseModel):
     lat:   float
     lon:   float
-    alt:   float = 5.0
+    alt:   float = TARGET_ALTITUDE_M
     label: str   = "B"
 
 class MissionUpload(BaseModel):
@@ -54,6 +60,8 @@ def upload(mission: MissionUpload):
 @app.post("/mission/start")
 def start():
     if ros_node:
+        ros_node.alt_abort_triggered = False
+        ros_node.mission_state = "IDLE"
         msg = String(); msg.data = "START"
         ros_node.cmd_pub.publish(msg)
     return {"status": "ok"}
@@ -64,6 +72,20 @@ def abort():
         msg = String(); msg.data = "ABORT"
         ros_node.cmd_pub.publish(msg)
     return {"status": "ok"}
+
+@app.post("/drone/arm")
+def arm_drone():
+    if ros_node:
+        msg = String(); msg.data = "ARM"
+        ros_node.base_cmd_pub.publish(msg)
+    return {"status": "ok", "command": "ARM"}
+
+@app.post("/drone/disarm")
+def disarm_drone():
+    if ros_node:
+        msg = String(); msg.data = "DISARM"
+        ros_node.base_cmd_pub.publish(msg)
+    return {"status": "ok", "command": "DISARM"}
 
 @app.get("/mission/status")
 def status():
@@ -157,6 +179,8 @@ class BridgeNode(Node):
             String, "/mission/waypoints", 10)
         self.cmd_pub = self.create_publisher(
             String, "/mission/command", 10)
+        self.base_cmd_pub = self.create_publisher(
+            String, "/drone_base/command", 10)
 
         # ── Subscribers ───────────────────────────
         self.create_subscription(
@@ -189,6 +213,7 @@ class BridgeNode(Node):
         self.heading       = 0.0
         self.battery_pct   = 100.0
         self.flight_mode   = "UNKNOWN"
+        self.alt_abort_triggered = False
 
         # ── NEW: Camera frame storage ──────────────
         self.latest_frame  = None   # numpy array (BGR)
@@ -212,6 +237,14 @@ class BridgeNode(Node):
         siny = 2.0 * (q.w * q.z + q.x * q.y)
         cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         self.heading = math.degrees(math.atan2(siny, cosy)) % 360
+
+        if self.altitude >= ABORT_ALTITUDE_M and not self.alt_abort_triggered:
+            self.alt_abort_triggered = True
+            self.mission_state = "MISSION_ABORT"
+            self.get_logger().warn(
+                f"SAFETY: altitude {self.altitude:.2f}m >= {ABORT_ALTITUDE_M}m limit — aborting mission")
+            abort_msg = String(); abort_msg.data = "ABORT"
+            self.cmd_pub.publish(abort_msg)
 
     # ── NEW: Camera callback ───────────────────────
     def _camera_cb(self, msg: Image):

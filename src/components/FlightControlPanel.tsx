@@ -20,6 +20,9 @@ interface FlightControlPanelProps {
   gpsSyncError: string | null;
   onSyncLaptopLocation: () => void;
   missionTimeSec: number;
+  ros2Connected?: boolean;
+  droneStatus?: string;
+  onArmDrone: () => void;
 }
 
 export default function FlightControlPanel({
@@ -39,12 +42,16 @@ export default function FlightControlPanel({
   gpsSyncStatus,
   gpsSyncError,
   onSyncLaptopLocation,
-  missionTimeSec
+  missionTimeSec,
+  ros2Connected,
+  droneStatus,
+  onArmDrone
 }: FlightControlPanelProps) {
 
   // Simple input validation
   const canPlan = startLoc && destLoc;
   const canLaunch = startLoc && destLoc && (flightState === FlightState.IDLE || flightState === FlightState.PLANNING);
+  const isArmed = droneStatus === 'ARMED' || droneStatus === 'AIRBORNE' || droneStatus === 'LANDING';
 
   // Signal status descriptor Helper
   const getSignalStatus = (dbm: number) => {
@@ -342,7 +349,26 @@ export default function FlightControlPanel({
 
       {/* Flight Execution Controls & Urgent LANDING OVERRIDE button */}
       <div className="mt-6 space-y-3.5">
-        
+
+        {/* Arm Drone button */}
+        <button
+          id="btn-arm-drone"
+          type="button"
+          disabled={isArmed || !ros2Connected}
+          onClick={onArmDrone}
+          title={!ros2Connected ? 'ROS2 backend not connected' : undefined}
+          className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold font-sans flex items-center justify-center space-x-1.5 border transition-all uppercase ${
+            isArmed
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 cursor-default'
+              : ros2Connected
+                ? 'bg-amber-500 border-transparent text-slate-950 hover:bg-amber-400 shadow-md shadow-amber-500/20 cursor-pointer'
+                : 'bg-white/5 border-white/5 text-slate-600 cursor-not-allowed'
+          }`}
+        >
+          <Power className="w-3.5 h-3.5" />
+          <span>{isArmed ? `Drone Armed (${droneStatus})` : 'Arm Drone'}</span>
+        </button>
+
         {/* Run System button */}
         <div className="grid grid-cols-2 gap-2.5">
           <button
@@ -388,7 +414,7 @@ export default function FlightControlPanel({
           <div className="p-3 bg-red-950/20 border border-red-600/30 rounded-xl text-red-400 text-[10px] font-mono flex items-start space-x-2 animate-pulse uppercase leading-relaxed font-bold">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
             <div>
-              OVERRIDE RE-ROUTE EN-ROUTE. Lowering barometric altitude & dispatching telemetry coordinates frame to Spring Boot handler queue.
+              EMERGENCY OVERRIDE ENGAGED. Initiating controlled descent & publishing ABORT command to the ROS2 mission bridge.
             </div>
           </div>
         )}

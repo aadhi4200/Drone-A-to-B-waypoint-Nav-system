@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Compass, ShieldAlert, ZoomIn, Activity } from 'lucide-react';
 import { LatLng, Obstacle, FlightState, SensorOrientation } from '../types';
+import { API_BASE } from '../api';
 
 interface CameraFeedProps {
   dronePos: { lat: number; lng: number; heading: number };
@@ -8,6 +9,7 @@ interface CameraFeedProps {
   destLoc: LatLng | null;
   obstacles: Obstacle[];
   sensors: SensorOrientation;
+  ros2Connected: boolean;
 }
 
 export default function CameraFeed({
@@ -15,8 +17,19 @@ export default function CameraFeed({
   flightState,
   destLoc,
   obstacles,
-  sensors
+  sensors,
+  ros2Connected
 }: CameraFeedProps) {
+  // Cache-bust the MJPEG <img> src each time we (re)connect, so a stale/broken
+  // stream from a previous ROS2 session doesn't linger in the browser's cache.
+  const [streamKey, setStreamKey] = useState(0);
+  const [liveStreamError, setLiveStreamError] = useState(false);
+  useEffect(() => {
+    if (ros2Connected) {
+      setStreamKey(k => k + 1);
+      setLiveStreamError(false);
+    }
+  }, [ros2Connected]);
   const [activeLayout, setActiveLayout] = useState<'split' | 'feed1' | 'feed2'>('split');
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [isRecording, setIsRecording] = useState<boolean>(true);
@@ -230,8 +243,12 @@ export default function CameraFeed({
         <div className="flex items-center space-x-2">
           <Camera className="w-5 h-5 text-cyan-400 animate-pulse" />
           <div>
-            <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">Simulated Optical Gimbal Hub</h3>
-            <p className="text-[10px] text-slate-400">FPV dual viewport feeds with target tracing HUD & ground navigation cameras</p>
+            <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">Optical Gimbal Hub</h3>
+            <p className="text-[10px] text-slate-400">
+              {ros2Connected && !liveStreamError
+                ? 'Feed 1: live ROS2 camera stream · Feed 2: simulated nav-cam HUD'
+                : 'FPV dual viewport feeds with target tracing HUD & ground navigation cameras (simulated — ROS2 not connected)'}
+            </p>
           </div>
         </div>
 
@@ -277,12 +294,22 @@ export default function CameraFeed({
         {/* Feed 1 Panel */}
         {(activeLayout === 'split' || activeLayout === 'feed1') && (
           <div className="relative border border-white/10 bg-slate-950 rounded-xl overflow-hidden aspect-video flex flex-col shadow-inner">
-            <canvas
-              ref={canvasRef1}
-              width={480}
-              height={270}
-              className="w-full h-full object-cover"
-            />
+            {ros2Connected && !liveStreamError ? (
+              <img
+                key={streamKey}
+                src={`${API_BASE}/camera/stream`}
+                alt="Live ROS2 camera feed"
+                className="w-full h-full object-cover"
+                onError={() => setLiveStreamError(true)}
+              />
+            ) : (
+              <canvas
+                ref={canvasRef1}
+                width={480}
+                height={270}
+                className="w-full h-full object-cover"
+              />
+            )}
 
             {/* FPV Live Indicator overlays */}
             <div className="absolute top-3 right-3 flex items-center space-x-2 bg-slate-950/80 border border-white/10 px-2 py-1 rounded font-mono text-[9px] text-slate-300">
@@ -390,10 +417,17 @@ export default function CameraFeed({
         <div className="flex items-center space-x-2 text-[10px] text-slate-400">
           
           {/* Signal Connection Status badge */}
-          <div className="flex items-center space-x-2 bg-emerald-500/10 px-2.5 py-1.5 rounded-xl border border-emerald-500/20 text-emerald-400 font-bold uppercase tracking-wide">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-            <span>CAMERA STABLE: CONNECTED</span>
-          </div>
+          {ros2Connected && !liveStreamError ? (
+            <div className="flex items-center space-x-2 bg-emerald-500/10 px-2.5 py-1.5 rounded-xl border border-emerald-500/20 text-emerald-400 font-bold uppercase tracking-wide">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+              <span>CAMERA STABLE: CONNECTED (LIVE)</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-2 bg-amber-500/10 px-2.5 py-1.5 rounded-xl border border-amber-500/20 text-amber-400 font-bold uppercase tracking-wide">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              <span>CAMERA: SIMULATED (ROS2 OFFLINE)</span>
+            </div>
+          )}
 
           <button
             onClick={() => setShowGrid(!showGrid)}
