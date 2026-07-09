@@ -1,25 +1,53 @@
 #!/usr/bin/env python3
 """
-backend/main.py — add camera streaming to existing BridgeNode
+backend/main.py — FastAPI + rclpy bridge between the website and the ROS2
+mission stack (see ~/drone_ws2/src/autonomous_drone_ros2 for the ROS2 side).
 """
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List
-import rclpy
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
-from std_msgs.msg import String
-from nav_msgs.msg import Odometry
-from sensor_msgs.msg import NavSatFix, Image    # ← ADD Image
-from mavros_msgs.msg import State
-from cv_bridge import CvBridge                  # ← ADD
-import cv2                                       # ← ADD
-import numpy as np                              # ← ADD
-import json, threading, uvicorn, asyncio
+import asyncio
+import json
+import math
+import os
+import threading
+import time
+from typing import List, Optional
 
-app = FastAPI()
+import cv2
+import numpy as np
+import rclpy
+import uvicorn
+from cv_bridge import CvBridge
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from mavros_msgs.msg import HomePosition, State
+from mavros_msgs.srv import ParamSet
+from nav_msgs.msg import Odometry
+from pydantic import BaseModel
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import BatteryState, Image, Imu, NavSatFix
+from std_msgs.msg import Int32, String
+
+import db
+import range_estimate
+from drone_interfaces.aruco_marker import write_pad_model_everywhere
+from drone_interfaces.constants import (ARUCO_ID_AUTO_START,
+                                          NODE_HEARTBEAT_STALE_S,
+                                          TOPIC_MISSION_SAFETY_EVENT)
+from drone_interfaces.geo import gps_distance_m, gps_to_local
+from drone_interfaces.gz_spawn import find_world_name, spawn_model
+
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    if ros_node:
+        ros_node.loop = asyncio.get_running_loop()
+    yield
+
+
+app = FastAPI(lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000",
@@ -35,6 +63,26 @@ ros_node = None
 # ── Altitude safety limits ────────────────────────
 TARGET_ALTITUDE_M = 2.5
 ABORT_ALTITUDE_M   = 3.0
+DEFAULT_MAX_SPEED_MS = 3.0
+HOME_MISMATCH_THRESHOLD_M = 1000.0
+
+REPO_MODELS_ROOT = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "autonomous_drone_ros2",
+    "simulation", "gazebo", "models"))
+LAST_SYNCED_HOME_FILE = os.path.expanduser("~/drone_ws2/.last_synced_home")
+
+MONITORED_NODES = {
+    "drone_base": "/drone_base/status",
+    "waypoint_navigator": "/waypoint_nav/status",
+    "aruco_landing": "/aruco_landing/status",
+    "vision_node": "/vision_node/heartbeat",
+    "camera_node": "/camera_node/heartbeat",
+    "mission_manager": "/mission/status",
+}
+
+AIRBORNE_MISSION_STATES = {"PREFLIGHT", "TAKEOFF", "GOTO_WAYPOINT", "ARUCO_LAND",
+                            "WAIT_ON_GROUND", "INTER_TAKEOFF", "RETURN_HOME", "HOME_LAND"}
+
 
 # ── Data models ───────────────────────────────────
 class Waypoint(BaseModel):
@@ -42,29 +90,105 @@ class Waypoint(BaseModel):
     lon:   float
     alt:   float = TARGET_ALTITUDE_M
     label: str   = "B"
+    marker_id: Optional[int] = None
+
 
 class MissionUpload(BaseModel):
     waypoints: List[Waypoint]
+    speed_ms: Optional[float] = None
 
-# ── Existing endpoints ────────────────────────────
+
+class MarkerGenerateRequest(BaseModel):
+    label: str
+    marker_id: Optional[int] = None
+    lat: float
+    lon: float
+
+
+class SetHomeRequest(BaseModel):
+    lat: float
+    lon: float
+
+
+class ModeRequest(BaseModel):
+    mode: str  # "sim" | "hardware"
+
+
+class DroneProfileRequest(BaseModel):
+    motor_kv: Optional[float] = None
+    esc_amp: Optional[float] = None
+    battery_mah: Optional[float] = None
+    cells: Optional[int] = None
+    num_motors: Optional[int] = 4
+    auw_grams: Optional[float] = None
+    efficiency_factor: Optional[float] = None
+    cruise_speed_ms: Optional[float] = None
+
+
+# ── Connectivity gate (Feature 9) — authoritative, not just UI ───────────
+def _gate():
+    if ros_node is None:
+        return False, ["ros2_bridge_not_connected"]
+    return ros_node.all_clear()[:2]
+
+
+def _require_all_clear():
+    ok, reasons = _gate()
+    if not ok:
+        raise HTTPException(status_code=503, detail={"reasons": reasons})
+
+
+def _route_distance_m(home_lat, home_lon, waypoints: List[Waypoint]) -> float:
+    if not waypoints:
+        return 0.0
+    total = gps_distance_m(home_lat, home_lon, waypoints[0].lat, waypoints[0].lon)
+    for a, b in zip(waypoints, waypoints[1:]):
+        total += gps_distance_m(a.lat, a.lon, b.lat, b.lon)
+    total += gps_distance_m(waypoints[-1].lat, waypoints[-1].lon, home_lat, home_lon)
+    return total
+
+
+# ── Existing + extended endpoints ─────────────────
 @app.post("/mission/upload")
 def upload(mission: MissionUpload):
+    _require_all_clear()
+
+    for w in mission.waypoints:
+        if w.alt > ABORT_ALTITUDE_M:
+            raise HTTPException(400, f"Waypoint {w.label} altitude {w.alt}m exceeds "
+                                      f"ABORT_ALTITUDE_M={ABORT_ALTITUDE_M}m — rejected, not clamped.")
+
+    if ros_node and ros_node.home_lat is not None:
+        route_m = _route_distance_m(ros_node.home_lat, ros_node.home_lon, mission.waypoints)
+        profile = db.get_profile()
+        if profile:
+            est = range_estimate.estimate(profile)
+            if est["range_m"] is not None and route_m > est["range_m"]:
+                raise HTTPException(
+                    400, f"Planned route ({route_m:.0f}m) exceeds the estimated safe "
+                         f"range ({est['range_m']:.0f}m) for the configured drone profile.")
+
     if ros_node:
-        data = [{"lat": w.lat, "lon": w.lon,
-                 "alt": w.alt, "label": w.label}
-                for w in mission.waypoints]
+        data = [{"lat": w.lat, "lon": w.lon, "alt": w.alt, "label": w.label,
+                 "marker_id": w.marker_id} for w in mission.waypoints]
+        ros_node.uploaded_waypoints = data
         msg = String(); msg.data = json.dumps(data)
         ros_node.waypoints_pub.publish(msg)
+        if mission.speed_ms:
+            ros_node.set_max_speed(mission.speed_ms)
     return {"status": "ok", "count": len(mission.waypoints)}
+
 
 @app.post("/mission/start")
 def start():
+    _require_all_clear()
     if ros_node:
         ros_node.alt_abort_triggered = False
         ros_node.mission_state = "IDLE"
         msg = String(); msg.data = "START"
         ros_node.cmd_pub.publish(msg)
     return {"status": "ok"}
+
 
 @app.post("/mission/abort")
 def abort():
@@ -73,12 +197,15 @@ def abort():
         ros_node.cmd_pub.publish(msg)
     return {"status": "ok"}
 
+
 @app.post("/drone/arm")
 def arm_drone():
+    _require_all_clear()
     if ros_node:
         msg = String(); msg.data = "ARM"
         ros_node.base_cmd_pub.publish(msg)
     return {"status": "ok", "command": "ARM"}
+
 
 @app.post("/drone/disarm")
 def disarm_drone():
@@ -86,6 +213,7 @@ def disarm_drone():
         msg = String(); msg.data = "DISARM"
         ros_node.base_cmd_pub.publish(msg)
     return {"status": "ok", "command": "DISARM"}
+
 
 @app.get("/mission/status")
 def status():
@@ -102,7 +230,95 @@ def status():
         }
     return {"mission_state": "DISCONNECTED"}
 
-# ── NEW: Camera stream endpoint ───────────────────
+
+# ── Feature 1: runtime ArUco marker generation + spawn ────────────────────
+@app.post("/markers/generate")
+def generate_marker(req: MarkerGenerateRequest):
+    _require_all_clear()
+    if ros_node is None or ros_node.mode == "hardware":
+        raise HTTPException(503, "Marker generation is sim-only (mode=hardware).")
+    if ros_node.home_lat is None:
+        raise HTTPException(503, "Home GPS not yet locked — cannot compute a spawn pose.")
+
+    marker_id = req.marker_id
+    if marker_id is None:
+        marker_id = ros_node.marker_assignments.get(req.label)
+        if marker_id is None:
+            marker_id = ros_node.next_auto_marker_id
+            ros_node.next_auto_marker_id += 1
+    ros_node.marker_assignments[req.label] = marker_id
+
+    model_name = f"aruco_pad_{req.label}"
+    result = write_pad_model_everywhere(marker_id, REPO_MODELS_ROOT, model_name)
+
+    north, east = gps_to_local(ros_node.home_lat, ros_node.home_lon, req.lat, req.lon)
+    sdf_path = result.get("px4_sdf_path", result["sdf_path"])
+    world_name = find_world_name()
+    ok, message = spawn_model(world_name, model_name, sdf_path, east, north, 0.001)
+    if not ok:
+        raise HTTPException(500, f"gz spawn failed: {message}")
+
+    return {"status": "ok", "model_name": model_name, "marker_id": marker_id,
+            "texture_path": result["texture_path"]}
+
+
+# ── Feature 2 (3.3): laptop-geolocation-driven SITL home ──────────────────
+@app.post("/system/set-home")
+def set_home(req: SetHomeRequest):
+    db.set_home(req.lat, req.lon)
+    os.makedirs(os.path.dirname(LAST_SYNCED_HOME_FILE), exist_ok=True)
+    with open(LAST_SYNCED_HOME_FILE, "w") as f:
+        f.write(f"{req.lat},{req.lon}")
+    return {"status": "ok"}
+
+
+@app.get("/system/home")
+def get_home():
+    home = db.get_home()
+    if home is None:
+        return {"lat": None, "lon": None, "synced_at": None}
+    return home
+
+
+# ── Feature 4: sim/hardware toggle ────────────────────────────────────────
+@app.get("/system/mode")
+def get_mode():
+    return {"mode": db.get_config("mode", "sim")}
+
+
+@app.post("/system/mode")
+def set_mode(req: ModeRequest):
+    if req.mode not in ("sim", "hardware"):
+        raise HTTPException(400, "mode must be 'sim' or 'hardware'")
+    db.set_config("mode", req.mode)
+    if ros_node:
+        ros_node.mode = req.mode
+    return {"status": "ok", "mode": req.mode}
+
+
+# ── Feature 11: hardware profile + range estimate ─────────────────────────
+@app.get("/system/profile")
+def get_profile():
+    profile = db.get_profile() or {}
+    return {"profile": profile, "estimate": range_estimate.estimate(profile)}
+
+
+@app.post("/system/profile")
+def set_profile(req: DroneProfileRequest):
+    db.set_profile(req.model_dump())
+    return get_profile()
+
+
+# ── Feature 10: persisted travel log ──────────────────────────────────────
+@app.get("/missions/{mission_id}/travel-log")
+def travel_log(mission_id: int):
+    log = db.get_travel_log(mission_id)
+    if log is None:
+        raise HTTPException(404, "mission not found")
+    return log
+
+
+# ── Camera stream endpoints (unchanged) ───────────
 @app.get("/camera/stream")
 async def camera_stream():
     """
@@ -112,25 +328,14 @@ async def camera_stream():
     def generate_frames():
         while True:
             if ros_node is None or ros_node.latest_frame is None:
-                # Send a black placeholder frame if no camera
                 blank = np.zeros((480, 640, 3), dtype=np.uint8)
                 cv2.putText(
-                    blank,
-                    "Waiting for camera...",
-                    (160, 240),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
-                    (0, 200, 200),
-                    2
-                )
+                    blank, "Waiting for camera...", (160, 240),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 200, 200), 2)
                 _, buffer = cv2.imencode(".jpg", blank)
             else:
-                # Encode latest ROS2 camera frame to JPEG
                 _, buffer = cv2.imencode(
-                    ".jpg",
-                    ros_node.latest_frame,
-                    [cv2.IMWRITE_JPEG_QUALITY, 80]
-                )
+                    ".jpg", ros_node.latest_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
 
             frame_bytes = buffer.tobytes()
             yield (
@@ -139,14 +344,13 @@ async def camera_stream():
                 + frame_bytes +
                 b"\r\n"
             )
-
-            # ~30 FPS
-            import time; time.sleep(0.033)
+            import time as _time; _time.sleep(0.033)
 
     return StreamingResponse(
         generate_frames(),
         media_type="multipart/x-mixed-replace;boundary=frame"
     )
+
 
 @app.get("/camera/snapshot")
 async def camera_snapshot():
@@ -157,10 +361,49 @@ async def camera_snapshot():
     else:
         _, buffer = cv2.imencode(".jpg", ros_node.latest_frame)
 
-    return StreamingResponse(
-        iter([buffer.tobytes()]),
-        media_type="image/jpeg"
-    )
+    return StreamingResponse(iter([buffer.tobytes()]), media_type="image/jpeg")
+
+
+# ── Feature 3/6/7/8/9: WebSocket push (node status, IMU, position) ────────
+@app.websocket("/ws/system-status")
+async def system_status_ws(websocket: WebSocket):
+    await websocket.accept()
+    if ros_node:
+        ros_node.ws_clients.add(websocket)
+        await websocket.send_json(ros_node.build_node_status_payload())
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if ros_node:
+            ros_node.ws_clients.discard(websocket)
+
+
+async def _broadcast(payload: dict):
+    if ros_node is None:
+        return
+    dead = []
+    for ws in list(ros_node.ws_clients):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        ros_node.ws_clients.discard(ws)
+
+
+def push_from_ros_thread(payload: dict):
+    """Call from an rclpy callback (a different thread than uvicorn's asyncio
+    loop) to push a WebSocket message. Must hop threads via
+    run_coroutine_threadsafe — a naive cross-thread await would just block."""
+    if ros_node is None or ros_node.loop is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(_broadcast(payload), ros_node.loop)
+    except RuntimeError:
+        pass  # event loop closed (uvicorn shutting down) — never fatal for the ROS side
 
 
 # ── Updated BridgeNode ────────────────────────────
@@ -175,34 +418,29 @@ class BridgeNode(Node):
         )
 
         # ── Publishers ────────────────────────────
-        self.waypoints_pub = self.create_publisher(
-            String, "/mission/waypoints", 10)
-        self.cmd_pub = self.create_publisher(
-            String, "/mission/command", 10)
-        self.base_cmd_pub = self.create_publisher(
-            String, "/drone_base/command", 10)
+        self.waypoints_pub = self.create_publisher(String, "/mission/waypoints", 10)
+        self.cmd_pub = self.create_publisher(String, "/mission/command", 10)
+        self.base_cmd_pub = self.create_publisher(String, "/drone_base/command", 10)
 
-        # ── Subscribers ───────────────────────────
-        self.create_subscription(
-            String,    "/mission/status",                 self._mission_cb, 10)
-        self.create_subscription(
-            String,    "/drone_base/status",              self._base_cb,    10)
-        self.create_subscription(
-            NavSatFix, "/mavros/global_position/global",  self._gps_cb,     sensor_qos)
-        self.create_subscription(
-            Odometry,  "/mavros/local_position/odom",     self._odom_cb,    sensor_qos)
+        # ── Subscribers: mission/base/camera (existing) ──
+        self.create_subscription(String,    "/mission/status",               self._mission_cb, 10)
+        self.create_subscription(String,    "/drone_base/status",            self._base_cb,    10)
+        self.create_subscription(NavSatFix, "/mavros/global_position/global", self._gps_cb,     sensor_qos)
+        self.create_subscription(Odometry,  "/mavros/local_position/odom",    self._odom_cb,    sensor_qos)
+        self.create_subscription(Image,     "/camera/image_raw",              self._camera_cb,  sensor_qos)
+        self.create_subscription(State,     "/mavros/state",                  self._state_cb,   sensor_qos)
 
-        # ── NEW: Subscribe to downward camera ─────
-        self.create_subscription(
-            Image,
-            "/camera/image_raw",        # ← your existing camera topic
-            self._camera_cb,
-            sensor_qos
-        )
+        # ── Subscribers: new for connectivity gate / IMU / home ──
+        self.create_subscription(HomePosition, "/mavros/home_position/home", self._home_cb, sensor_qos)
+        self.create_subscription(Imu,          "/mavros/imu/data",           self._imu_cb,  sensor_qos)
+        self.create_subscription(BatteryState, "/mavros/battery",           self._battery_cb, sensor_qos)
+        self.create_subscription(String, "/waypoint_nav/status",  self._make_heartbeat_cb("waypoint_navigator"), 10)
+        self.create_subscription(String, "/aruco_landing/status", self._make_heartbeat_cb("aruco_landing"), 10)
+        self.create_subscription(String, "/vision_node/heartbeat", self._make_heartbeat_cb("vision_node"), 10)
+        self.create_subscription(String, "/camera_node/heartbeat", self._make_heartbeat_cb("camera_node"), 10)
+        self.create_subscription(String, TOPIC_MISSION_SAFETY_EVENT, self._safety_event_cb, 10)
 
-        from mavros_msgs.msg import State
-        self.create_subscription(
-            State, "/mavros/state", self._state_cb, sensor_qos)
+        self.param_set_client = self.create_client(ParamSet, "/mavros/param/set")
 
         # ── Internal state ─────────────────────────
         self.mission_state = "IDLE"
@@ -213,25 +451,74 @@ class BridgeNode(Node):
         self.heading       = 0.0
         self.battery_pct   = 100.0
         self.flight_mode   = "UNKNOWN"
+        self.mavros_connected = False
         self.alt_abort_triggered = False
+        self.home_lat = self.home_lon = None
 
-        # ── NEW: Camera frame storage ──────────────
-        self.latest_frame  = None   # numpy array (BGR)
+        self.latest_frame  = None
         self.bridge        = CvBridge()
+
+        # Connectivity gate bookkeeping (Feature 9)
+        self.node_last_seen = {name: None for name in MONITORED_NODES}
+        self.node_last_seen["drone_base"] = time.monotonic()  # first /drone_base/status may lag briefly
+        self._last_gate_key = None
+
+        # Marker generation (Feature 1)
+        self.marker_assignments = {}
+        self.next_auto_marker_id = ARUCO_ID_AUTO_START
+
+        # Mode + uploaded waypoints (Features 4/5, 9's geofence check)
+        self.mode = db.get_config("mode", "sim")
+        self.uploaded_waypoints = []
+
+        # WebSocket bookkeeping — loop is set from the FastAPI startup hook
+        self.ws_clients = set()
+        self.loop = None
+
+        # Travel log (Feature 10)
+        self.current_mission_id = None
+
+        self.create_timer(0.5, self._push_node_status)
+        self.create_timer(1.0, self._log_travel_point)
 
         self.get_logger().info("BridgeNode ready — camera stream on /camera/stream")
 
     # ── Existing callbacks ─────────────────────────
-    def _mission_cb(self, msg): self.mission_state = msg.data
-    def _base_cb(self,   msg): self.drone_status  = msg.data
-    def _state_cb(self,  msg): self.flight_mode   = msg.mode
+    def _mission_cb(self, msg):
+        prev = self.mission_state
+        self.mission_state = msg.data
+        self.node_last_seen["mission_manager"] = time.monotonic()
+        if prev not in AIRBORNE_MISSION_STATES and msg.data in AIRBORNE_MISSION_STATES:
+            self.current_mission_id = db.start_mission(self.home_lat, self.home_lon)
+        elif prev in AIRBORNE_MISSION_STATES and msg.data not in AIRBORNE_MISSION_STATES:
+            if self.current_mission_id is not None:
+                outcome = "COMPLETE" if msg.data == "MISSION_COMPLETE" else "ABORTED_LANDED"
+                db.end_mission(self.current_mission_id, outcome)
+                self.current_mission_id = None
+
+    def _base_cb(self, msg):
+        self.drone_status = msg.data
+        self.node_last_seen["drone_base"] = time.monotonic()
+
+    def _state_cb(self, msg):
+        self.flight_mode = msg.mode
+        self.mavros_connected = msg.connected
+
+    def _home_cb(self, msg: HomePosition):
+        if self.home_lat is None:
+            self.home_lat = msg.geo.latitude
+            self.home_lon = msg.geo.longitude
 
     def _gps_cb(self, msg: NavSatFix):
         self.current_lat = msg.latitude
         self.current_lon = msg.longitude
+        push_from_ros_thread({
+            "type": "position",
+            "lat": msg.latitude, "lon": msg.longitude,
+            "heading": self.heading, "altitude": self.altitude,
+        })
 
     def _odom_cb(self, msg: Odometry):
-        import math
         self.altitude = msg.pose.pose.position.z
         q = msg.pose.pose.orientation
         siny = 2.0 * (q.w * q.z + q.x * q.y)
@@ -246,53 +533,148 @@ class BridgeNode(Node):
             abort_msg = String(); abort_msg.data = "ABORT"
             self.cmd_pub.publish(abort_msg)
 
-    # ── NEW: Camera callback ───────────────────────
-    def _camera_cb(self, msg: Image):
-        """
-        Convert ROS2 Image → OpenCV BGR frame.
-        Stored in self.latest_frame.
-        FastAPI /camera/stream reads this 30x per second.
-        """
-        try:
-            # Convert ROS2 image to OpenCV
-            frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+    def _imu_cb(self, msg: Imu):
+        q = msg.orientation
+        sinr_cosp = 2 * (q.w * q.x + q.y * q.z)
+        cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y)
+        roll = math.degrees(math.atan2(sinr_cosp, cosr_cosp))
+        sinp = 2 * (q.w * q.y - q.z * q.x)
+        pitch = math.degrees(math.copysign(math.pi / 2, sinp)) if abs(sinp) >= 1 \
+            else math.degrees(math.asin(sinp))
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        yaw = math.degrees(math.atan2(siny_cosp, cosy_cosp))
 
-            # Optional: draw ArUco overlay info on frame
-            # Draw crosshair at center
+        push_from_ros_thread({
+            "type": "imu",
+            "pitch": pitch, "roll": roll, "yaw": yaw,
+            "rate": {"x": msg.angular_velocity.x, "y": msg.angular_velocity.y, "z": msg.angular_velocity.z},
+        })
+
+    def _battery_cb(self, msg: BatteryState):
+        if msg.percentage is not None and msg.percentage >= 0:
+            self.battery_pct = msg.percentage * 100.0
+
+    def _make_heartbeat_cb(self, name):
+        def cb(msg):
+            self.node_last_seen[name] = time.monotonic()
+        return cb
+
+    def _safety_event_cb(self, msg):
+        try:
+            data = json.loads(msg.data)
+        except Exception:
+            return
+        if self.current_mission_id is not None:
+            db.log_safety_event(self.current_mission_id, data.get("event_type", "UNKNOWN"), data.get("detail", ""))
+        if data.get("event_type") == "MAVROS_LOST" or "NODE_HEARTBEAT" in data.get("event_type", ""):
+            pass  # RTH outcome already recorded via mission_state transition -> ABORTED_RTH below
+
+    # ── Camera callback ───────────────────────
+    def _camera_cb(self, msg: Image):
+        try:
+            frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             h, w = frame.shape[:2]
             cx, cy = w // 2, h // 2
             cv2.line(frame, (cx-20, cy), (cx+20, cy), (0, 255, 255), 1)
             cv2.line(frame, (cx, cy-20), (cx, cy+20), (0, 255, 255), 1)
-
-            # Draw altitude overlay
-            cv2.putText(
-                frame,
-                f"ALT: {self.altitude:.1f}m",
-                (10, 25),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6, (0, 255, 255), 1
-            )
-
-            # Draw mission state overlay
-            cv2.putText(
-                frame,
-                f"STATE: {self.mission_state}",
-                (10, 50),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6, (0, 255, 0), 1
-            )
-
+            cv2.putText(frame, f"ALT: {self.altitude:.1f}m", (10, 25),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+            cv2.putText(frame, f"STATE: {self.mission_state}", (10, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
             self.latest_frame = frame
-
         except Exception as e:
-            self.get_logger().warn(
-                f"Camera callback error: {e}",
-                throttle_duration_sec=5.0)
+            self.get_logger().warn(f"Camera callback error: {e}", throttle_duration_sec=5.0)
+
+    # ── Connectivity gate (Feature 9) ──────────────
+    def _home_mismatch(self) -> bool:
+        synced = db.get_home()
+        if self.home_lat is None or synced is None or synced.get("lat") is None:
+            return False
+        return gps_distance_m(self.home_lat, self.home_lon, synced["lat"], synced["lon"]) > HOME_MISMATCH_THRESHOLD_M
+
+    def _geofence_valid(self) -> bool:
+        if self.home_lat is None or not self.uploaded_waypoints:
+            return True
+        for wp in self.uploaded_waypoints:
+            if gps_distance_m(self.home_lat, self.home_lon, wp["lat"], wp["lon"]) > HOME_MISMATCH_THRESHOLD_M:
+                return False
+        return True
+
+    def _stale_nodes(self):
+        now = time.monotonic()
+        return [name for name, seen in self.node_last_seen.items()
+                if seen is None or (now - seen) > NODE_HEARTBEAT_STALE_S]
+
+    def all_clear(self):
+        stale = self._stale_nodes()
+        checks = {
+            "mavros_connected": self.mavros_connected,
+            "nodes_alive": len(stale) == 0,
+            "gps_lock": self.current_lat != 0.0 or self.current_lon != 0.0,
+            "home_set": self.home_lat is not None,
+            "battery_ok": self.battery_pct > 10.0,
+            "home_position_match": not self._home_mismatch(),
+            "geofence_valid": self._geofence_valid(),
+        }
+        ok = all(checks.values())
+        reasons = [k for k, v in checks.items() if not v]
+        if stale:
+            reasons.append(f"stale_nodes:{stale}")
+        return ok, reasons, checks
+
+    def build_node_status_payload(self):
+        ok, reasons, checks = self.all_clear()
+        stale = set(self._stale_nodes())
+        return {
+            "type": "node_status",
+            "nodes": {name: ("DISCONNECTED" if name in stale else "CONNECTED")
+                      for name in MONITORED_NODES},
+            "preflight": {
+                "gps_lock": checks["gps_lock"],
+                "satellites": None,
+                "battery_pct": round(self.battery_pct, 1),
+                "mavros_connected": checks["mavros_connected"],
+                "home_set": checks["home_set"],
+                "geofence_valid": checks["geofence_valid"],
+                "home_position_match": checks["home_position_match"],
+            },
+            "all_clear": ok,
+            "reasons": reasons,
+        }
+
+    def _push_node_status(self):
+        if self.loop is None:
+            return  # uvicorn/lifespan hasn't started yet — nothing could receive this anyway
+        payload = self.build_node_status_payload()
+        gate_key = (payload["all_clear"], tuple(sorted(payload["reasons"])))
+        if gate_key == self._last_gate_key:
+            return
+        self._last_gate_key = gate_key
+        push_from_ros_thread(payload)
+
+    def _log_travel_point(self):
+        if self.current_mission_id is not None:
+            db.log_travel_point(self.current_mission_id, self.current_lat, self.current_lon,
+                                 self.altitude, self.heading)
+
+    # ── Feature 5 (section 6): mission-level max speed via MAVROS ────────
+    def set_max_speed(self, speed_ms: float):
+        if not self.param_set_client.service_is_ready():
+            self.get_logger().warn("MAVROS param/set service not ready — speed not applied")
+            return
+        req = ParamSet.Request()
+        req.param_id = "MPC_XY_VEL_MAX"
+        req.value.real = float(speed_ms)
+        future = self.param_set_client.call_async(req)
+        future.add_done_callback(
+            lambda f: self.get_logger().info(f"MPC_XY_VEL_MAX set -> {f.result().success}"))
 
 
 def main():
     global ros_node
     rclpy.init()
+    db.init_db()
     ros_node = BridgeNode()
 
     api_thread = threading.Thread(

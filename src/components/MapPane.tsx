@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Navigation, ShieldAlert, CheckCircle, Crosshair, AlertCircle, RefreshCw, Search, MapPin, Loader2, Layers } from 'lucide-react';
-import { LatLng, Obstacle, FlightState } from '../types';
+import { LatLng, Obstacle, FlightState, MissionWaypoint } from '../types';
 
 interface MapPaneProps {
   apiKey: string;
@@ -14,6 +14,9 @@ interface MapPaneProps {
   flightState: FlightState;
   onSetStartLoc: (loc: LatLng) => void;
   onSetDestLoc: (loc: LatLng | null) => void;
+  onAddWaypoint?: (loc: LatLng) => void;
+  waypoints?: MissionWaypoint[];
+  traveledPath?: LatLng[];
   plannedPath: LatLng[];
   directPath: LatLng[];
   avoidanceActive: boolean;
@@ -57,6 +60,9 @@ export default function MapPane({
   flightState,
   onSetStartLoc,
   onSetDestLoc,
+  onAddWaypoint,
+  waypoints = [],
+  traveledPath = [],
   plannedPath,
   directPath,
   avoidanceActive,
@@ -142,11 +148,44 @@ export default function MapPane({
   const destMarkerRef = useRef<maplibregl.Marker | null>(null);
   const droneMarkerRef = useRef<maplibregl.Marker | null>(null);
   const obstacleMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const waypointMarkersRef = useRef<maplibregl.Marker[]>([]);
+
+  // Smooth drone-marker movement (Feature 8/9): lerp toward each new position
+  // over a short window instead of snapping, the way ride-tracking UIs
+  // animate between GPS pings.
+  const droneRenderPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  const droneAnimFrameRef = useRef<number | null>(null);
+  const animateDroneTo = (target: { lat: number; lng: number }) => {
+    const marker = droneMarkerRef.current;
+    if (!marker) return;
+    const start = droneRenderPosRef.current ?? target;
+    const startTime = performance.now();
+    const duration = 400;
+    if (droneAnimFrameRef.current !== null) cancelAnimationFrame(droneAnimFrameRef.current);
+    const step = (now: number) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const lat = start.lat + (target.lat - start.lat) * t;
+      const lng = start.lng + (target.lng - start.lng) * t;
+      droneRenderPosRef.current = { lat, lng };
+      marker.setLngLat([lng, lat]);
+      if (t < 1) {
+        droneAnimFrameRef.current = requestAnimationFrame(step);
+      } else {
+        droneAnimFrameRef.current = null;
+      }
+    };
+    droneAnimFrameRef.current = requestAnimationFrame(step);
+  };
 
   const clickModeRef = useRef(clickMode);
   useEffect(() => {
     clickModeRef.current = clickMode;
   }, [clickMode]);
+
+  const onAddWaypointRef = useRef(onAddWaypoint);
+  useEffect(() => {
+    onAddWaypointRef.current = onAddWaypoint;
+  }, [onAddWaypoint]);
 
   const [mapLoaded, setMapLoaded] = useState(false);
 
@@ -178,6 +217,7 @@ export default function MapPane({
         onSetStartLoc(roundedCoord);
       } else {
         onSetDestLoc(roundedCoord);
+        onAddWaypointRef.current?.(roundedCoord);
       }
     });
 
@@ -211,7 +251,25 @@ export default function MapPane({
         source: 'planned-path',
         paint: {
           'line-color': '#06b6d4',
-          'line-width': 3
+          'line-width': 2.5,
+          'line-opacity': 0.5,
+          'line-dasharray': [2, 2]
+        }
+      });
+
+      // Uber/Google-Directions-style "traveled so far" trail — solid, distinct
+      // from the lighter/dashed planned-path-layer above (Feature 8/9).
+      map.addSource('traveled-path', {
+        type: 'geojson',
+        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
+      });
+      map.addLayer({
+        id: 'traveled-path-layer',
+        type: 'line',
+        source: 'traveled-path',
+        paint: {
+          'line-color': '#22d3ee',
+          'line-width': 3.5
         }
       });
 
@@ -315,6 +373,9 @@ export default function MapPane({
       droneMarkerRef.current = null;
       obstacleMarkersRef.current.forEach(m => m.remove());
       obstacleMarkersRef.current = [];
+      waypointMarkersRef.current.forEach(m => m.remove());
+      waypointMarkersRef.current = [];
+      if (droneAnimFrameRef.current !== null) cancelAnimationFrame(droneAnimFrameRef.current);
       setMapLoaded(false);
     };
   }, []);
@@ -393,8 +454,9 @@ export default function MapPane({
         .setLngLat([dronePos.lng, dronePos.lat])
         .addTo(map);
       droneMarkerRef.current = marker;
+      droneRenderPosRef.current = { lat: dronePos.lat, lng: dronePos.lng };
     } else {
-      droneMarkerRef.current.setLngLat([dronePos.lng, dronePos.lat]);
+      animateDroneTo({ lat: dronePos.lat, lng: dronePos.lng });
       const rotNode = droneMarkerRef.current.getElement().querySelector('#maplibre-drone-wrapper > div:last-child');
       if (rotNode instanceof HTMLElement) {
         rotNode.style.transform = `rotate(${dronePos.heading}deg)`;
@@ -434,6 +496,19 @@ export default function MapPane({
         geometry: {
           type: 'LineString',
           coordinates: plannedPath.map(p => [p.lng, p.lat])
+        }
+      });
+    }
+
+    // Sync traveled trail (Feature 8/9)
+    const traveledSource = map.getSource('traveled-path') as maplibregl.GeoJSONSource;
+    if (traveledSource) {
+      traveledSource.setData({
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'LineString',
+          coordinates: traveledPath.map(p => [p.lng, p.lat])
         }
       });
     }
@@ -480,7 +555,32 @@ export default function MapPane({
       obstacleMarkersRef.current.push(labelMarker);
     });
 
-  }, [directPath, plannedPath, obstacles, mapLoaded]);
+  }, [directPath, plannedPath, traveledPath, obstacles, mapLoaded]);
+
+  // Sync mission-stop (B/C/D...) markers — Feature 1/2
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+
+    waypointMarkersRef.current.forEach(m => m.remove());
+    waypointMarkersRef.current = [];
+
+    waypoints.forEach((wp) => {
+      const el = document.createElement('div');
+      const spawned = wp.markerStatus === 'spawned';
+      el.innerHTML = `
+        <div class="flex items-center justify-center w-7 h-7 rounded-full bg-slate-950/80 border ${
+          spawned ? 'border-emerald-500 text-emerald-400' : 'border-cyan-500 text-cyan-300'
+        } font-bold text-[10px] font-mono shadow-lg">
+          ${wp.label}
+        </div>
+      `;
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([wp.lng, wp.lat])
+        .addTo(map);
+      waypointMarkersRef.current.push(marker);
+    });
+  }, [waypoints, mapLoaded]);
 
   // Fix sizing bugs when tabs are toggled
   useEffect(() => {

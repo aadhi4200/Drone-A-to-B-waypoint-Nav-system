@@ -1,12 +1,14 @@
 // api.ts — talks to backend/main.py (FastAPI + ROS2 bridge, default http://localhost:8000)
 
 export const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
+export const WS_BASE = API_BASE.replace(/^http/, 'ws');
 
 export interface UploadWaypoint {
   lat: number;
   lon: number;
   alt?: number;
   label?: string;
+  marker_id?: number;
 }
 
 export interface MissionStatus {
@@ -20,18 +22,84 @@ export interface MissionStatus {
   flight_mode?: string;
 }
 
+// ApiError carries the backend's structured 503 gate-rejection reasons
+// (see backend/main.py's _require_all_clear) so the UI can show *why*.
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+  constructor(status: number, detail: unknown) {
+    super(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function post(path: string, body?: unknown) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => res.statusText);
+    throw new ApiError(res.status, (detail as any)?.detail ?? detail);
+  }
   return res.json();
 }
 
-export async function uploadWaypoints(waypoints: UploadWaypoint[]) {
-  return post('/mission/upload', { waypoints });
+async function get(path: string) {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => res.statusText);
+    throw new ApiError(res.status, (detail as any)?.detail ?? detail);
+  }
+  return res.json();
+}
+
+export async function uploadWaypoints(waypoints: UploadWaypoint[], speedMs?: number) {
+  return post('/mission/upload', { waypoints, speed_ms: speedMs });
+}
+
+// ── Feature 1: runtime ArUco marker generation ───────────────────────────
+export interface MarkerGenerateResponse {
+  status: string;
+  model_name: string;
+  marker_id: number;
+  texture_path: string;
+}
+export async function generateMarker(label: string, lat: number, lon: number, markerId?: number) {
+  return post('/markers/generate', { label, lat, lon, marker_id: markerId }) as Promise<MarkerGenerateResponse>;
+}
+
+// ── Feature 2 (3.3): laptop-geolocation-driven SITL home ─────────────────
+export async function setHome(lat: number, lon: number) {
+  return post('/system/set-home', { lat, lon });
+}
+export interface HomeSyncState { lat: number | null; lon: number | null; synced_at: string | null; }
+export async function getHome(): Promise<HomeSyncState> {
+  return get('/system/home');
+}
+
+// ── Feature 4: sim/hardware mode ─────────────────────────────────────────
+export async function getMode(): Promise<{ mode: 'sim' | 'hardware' }> {
+  return get('/system/mode');
+}
+export async function setMode(mode: 'sim' | 'hardware') {
+  return post('/system/mode', { mode });
+}
+
+// ── Feature 11: hardware profile + range estimate ────────────────────────
+import type { DroneProfile, RangeEstimate } from './types';
+export async function getProfile(): Promise<{ profile: DroneProfile; estimate: RangeEstimate }> {
+  return get('/system/profile');
+}
+export async function setProfile(profile: DroneProfile): Promise<{ profile: DroneProfile; estimate: RangeEstimate }> {
+  return post('/system/profile', profile);
+}
+
+// ── Feature 10: travel log ────────────────────────────────────────────────
+export async function getTravelLog(missionId: number) {
+  return get(`/missions/${missionId}/travel-log`);
 }
 
 export async function startMission() {

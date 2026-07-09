@@ -18,11 +18,22 @@ interface FlightControlPanelProps {
   activePathLength: number;
   gpsSyncStatus: 'idle' | 'locating' | 'success' | 'error';
   gpsSyncError: string | null;
+  homeLastSyncedAt?: string | null;
   onSyncLaptopLocation: () => void;
   missionTimeSec: number;
   ros2Connected?: boolean;
   droneStatus?: string;
   onArmDrone: () => void;
+  allClear?: boolean;
+}
+
+function formatAge(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ${mins % 60}m ago`;
 }
 
 export default function FlightControlPanel({
@@ -41,16 +52,19 @@ export default function FlightControlPanel({
   activePathLength,
   gpsSyncStatus,
   gpsSyncError,
+  homeLastSyncedAt,
   onSyncLaptopLocation,
   missionTimeSec,
   ros2Connected,
   droneStatus,
-  onArmDrone
+  onArmDrone,
+  allClear = true,
 }: FlightControlPanelProps) {
 
   // Simple input validation
   const canPlan = startLoc && destLoc;
-  const canLaunch = startLoc && destLoc && (flightState === FlightState.IDLE || flightState === FlightState.PLANNING);
+  const canLaunch = startLoc && destLoc && allClear
+    && (flightState === FlightState.IDLE || flightState === FlightState.PLANNING);
   const isArmed = droneStatus === 'ARMED' || droneStatus === 'AIRBORNE' || droneStatus === 'LANDING';
 
   // Signal status descriptor Helper
@@ -174,6 +188,12 @@ export default function FlightControlPanel({
             {gpsSyncError && (
               <p className="text-[9px] text-rose-300 font-semibold leading-snug pt-1 px-1 text-center bg-rose-500/10 rounded-lg border border-rose-500/20 mt-1.5 uppercase">
                 {gpsSyncError}
+              </p>
+            )}
+
+            {homeLastSyncedAt && (
+              <p className="text-[9px] text-slate-500 font-mono leading-snug pt-1 px-1 text-center uppercase">
+                Home last synced: {formatAge(homeLastSyncedAt)}
               </p>
             )}
           </div>
@@ -354,9 +374,9 @@ export default function FlightControlPanel({
         <button
           id="btn-arm-drone"
           type="button"
-          disabled={isArmed || !ros2Connected}
+          disabled={isArmed || !ros2Connected || !allClear}
           onClick={onArmDrone}
-          title={!ros2Connected ? 'ROS2 backend not connected' : undefined}
+          title={!ros2Connected ? 'ROS2 backend not connected' : !allClear ? 'Blocked — see connectivity banner above' : undefined}
           className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold font-sans flex items-center justify-center space-x-1.5 border transition-all uppercase ${
             isArmed
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 cursor-default'

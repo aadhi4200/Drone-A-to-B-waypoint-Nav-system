@@ -90,3 +90,68 @@ export interface Obstacle {
   heightMeters: number;
   type: string;
 }
+
+// ── Mission waypoints (multi-stop B/C/D..., Feature 1/2/5) ──────────────
+export interface MissionWaypoint {
+  label: string;
+  lat: number;
+  lng: number;
+  alt: number;
+  markerId?: number;
+  markerStatus?: 'idle' | 'generating' | 'spawned' | 'error';
+}
+
+// ── WebSocket push messages (Feature 3/6/8/9) ────────────────────────────
+export interface NodeStatusMessage {
+  type: 'node_status';
+  nodes: Record<string, 'CONNECTED' | 'DISCONNECTED'>;
+  preflight: {
+    gps_lock: boolean;
+    satellites: number | null;
+    battery_pct: number;
+    mavros_connected: boolean;
+    home_set: boolean;
+    geofence_valid: boolean;
+    home_position_match: boolean;
+  };
+  all_clear: boolean;
+  reasons: string[];
+}
+
+export interface ImuMessage {
+  type: 'imu';
+  pitch: number;
+  roll: number;
+  yaw: number;
+  rate: { x: number; y: number; z: number };
+}
+
+export interface PositionMessage {
+  type: 'position';
+  lat: number;
+  lon: number;
+  heading: number;
+  altitude: number;
+}
+
+export type SystemStatusMessage = NodeStatusMessage | ImuMessage | PositionMessage;
+
+// ── Hardware profile / range estimate (Feature 11) ───────────────────────
+export interface DroneProfile {
+  motor_kv?: number | null;
+  esc_amp?: number | null;
+  battery_mah?: number | null;
+  cells?: number | null;
+  num_motors?: number | null;
+  auw_grams?: number | null;
+  efficiency_factor?: number | null;
+  cruise_speed_ms?: number | null;
+}
+
+export interface RangeEstimate {
+  flight_time_min: number | null;
+  range_m: number | null;
+  nominal_voltage: number | null;
+  hover_current_a: number | null;
+  note: string;
+}

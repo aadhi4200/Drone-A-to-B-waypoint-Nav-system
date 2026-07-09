@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadWaypoints, abortMission, getMissionStatus, armDrone } from './api';
+import { uploadWaypoints, abortMission, getMissionStatus, armDrone, generateMarker, setHome, getMode, ApiError } from './api';
 // NOTE: We import our api functions but rename the local startMission
 // to avoid conflict with the imported one
 import { startMission as ros2Start } from './api';
@@ -7,12 +7,18 @@ import {
   ShieldAlert, Zap, Radio, AlertTriangle,
   MapPin, Download, Check, Copy, KeyRound
 } from 'lucide-react';
-import { FlightState, LatLng, BatteryState, SignalState, ClimateState, SensorOrientation, TelemetryLog, Obstacle } from './types';
+import { FlightState, LatLng, BatteryState, SignalState, ClimateState, SensorOrientation, TelemetryLog, Obstacle, MissionWaypoint } from './types';
 import MapPane from './components/MapPane';
+import MapErrorBoundary from './components/MapErrorBoundary';
 import FlightControlPanel from './components/FlightControlPanel';
 import SensorReadout from './components/SensorReadout';
 import TelemetryTerminal, { TelemetryLogStream, TelemetryInsights } from './components/TelemetryTerminal';
 import CameraFeed from './components/CameraFeed';
+import IMUGraph from './components/IMUGraph';
+import ConnectivityBanner from './components/ConnectivityBanner';
+import WaypointList from './components/WaypointList';
+import DroneProfilePanel from './components/DroneProfilePanel';
+import { useSystemStatusSocket } from './hooks/useSystemStatusSocket';
 
 const API_KEY =
   process.env.GOOGLE_MAPS_PLATFORM_KEY ||
@@ -54,6 +60,23 @@ export default function App() {
   // ── ROS2 connection state (NEW) ─────────────────────
   const [ros2Connected, setRos2Connected] = useState<boolean>(false);
   const [droneStatus,   setDroneStatus]   = useState<string>('DISCONNECTED');
+
+  // ── Mission stops (B/C/D...), speed, traveled trail (Features 1/2/5/8/9) ──
+  const [waypoints, setWaypoints] = useState<MissionWaypoint[]>([]);
+  const [speedMs, setSpeedMs] = useState<number>(3.0);
+  const [traveledPath, setTraveledPath] = useState<LatLng[]>([]);
+  const nextStopLetter = useRef<number>(0); // 0 -> 'B', 1 -> 'C', ...
+  const MAX_TRAVELED_POINTS = 2000;
+
+  // ── Home sync staleness display (section 3.3.5) ─────
+  const [homeLastSyncedAt, setHomeLastSyncedAt] = useState<string | null>(null);
+
+  // ── Sim/hardware mode (Feature 4) ───────────────────
+  const [mode, setModeState] = useState<'sim' | 'hardware'>('sim');
+  useEffect(() => { getMode().then(({ mode }) => setModeState(mode)).catch(() => {}); }, []);
+
+  // ── Live WebSocket push: node/preflight status, IMU, position ───────
+  const { connected: wsConnected, nodeStatus, imu, position: wsPosition } = useSystemStatusSocket();
 
   // ── Simulation ──────────────────────────────────────
   const [simulationWindSpeed, setSimulationWindSpeed] = useState<number>(8.5);
@@ -112,6 +135,16 @@ export default function App() {
         ]);
         setGpsSyncStatus('success');
         addNewLogEntry(FlightState.IDLE, `GPS LOCK SUCCESS: Lat:${userLat.toFixed(6)} Lng:${userLng.toFixed(6)}`);
+
+        // Sync drone home to wherever the operator actually is (SITL-only —
+        // real hardware already gets true home from GPS at boot). This is
+        // one action from the operator's point of view: syncing location
+        // IS setting home, not two separate steps.
+        const syncedAt = new Date().toISOString();
+        setHomeLastSyncedAt(syncedAt);
+        setHome(userLat, userLng).catch(() => {
+          addNewLogEntry(FlightState.IDLE, "ROS2: Backend unreachable — home sync not persisted.");
+        });
       },
       (error) => {
         setGpsSyncStatus('error');
@@ -185,8 +218,10 @@ export default function App() {
         setRos2Connected(true);
         setDroneStatus(status.drone_status || 'DISCONNECTED');
 
-        // Update drone position + heading from real MAVROS telemetry
-        if (typeof status.lat === 'number' && typeof status.lon === 'number') {
+        // Update drone position + heading from real MAVROS telemetry.
+        // Only when the WebSocket push (Feature 8/9) isn't live — once it is,
+        // that's the position source and this REST poll is purely a fallback.
+        if (!wsConnected && typeof status.lat === 'number' && typeof status.lon === 'number') {
           setDronePos(prev => ({
             lat:     status.lat,
             lng:     status.lon,
@@ -230,7 +265,25 @@ export default function App() {
       }
     }, 500);
     return () => clearInterval(interval);
-  }, [flightState]);
+  }, [flightState, wsConnected]);
+
+  // ── WebSocket position push (Features 8/9) — native rate, not throttled ──
+  useEffect(() => {
+    if (!wsPosition || !wsConnected) return;
+    setDronePos({ lat: wsPosition.lat, lng: wsPosition.lon, heading: wsPosition.heading });
+    if (flightState === FlightState.EN_ROUTE) {
+      setTraveledPath(prev => {
+        const next = [...prev, { lat: wsPosition.lat, lng: wsPosition.lon }];
+        return next.length > MAX_TRAVELED_POINTS ? next.slice(next.length - MAX_TRAVELED_POINTS) : next;
+      });
+    }
+  }, [wsPosition, wsConnected, flightState]);
+
+  // ── WebSocket IMU push (Feature 6) — drives the live attitude readout too ──
+  useEffect(() => {
+    if (!imu || !wsConnected) return;
+    setSensors(prev => ({ ...prev, pitch: imu.pitch, roll: imu.roll }));
+  }, [imu, wsConnected]);
 
   // ── Path calculation ────────────────────────────────
   const calculateFlightPath = () => {
@@ -266,22 +319,28 @@ export default function App() {
     setFlightState(FlightState.EN_ROUTE);
     setMissionTimeSec(0);
     setCurrentPathIndex(0);
+    setTraveledPath([]);
     addNewLogEntry(FlightState.EN_ROUTE, "MISSION START: Trajectory execution initiated.");
 
     // ── Send to ROS2 via FastAPI ──────────────────────
+    // Multi-stop mission if the operator built one via the map; otherwise
+    // fall back to the single quick-destination flow (destLoc) unchanged.
+    const uploadList = waypoints.length > 0
+      ? waypoints.map(w => ({ lat: w.lat, lon: w.lng, alt: w.alt, label: w.label, marker_id: w.markerId }))
+      : [{ lat: destLoc.lat, lon: destLoc.lng, alt: TARGET_ALTITUDE_M, label: "B" }];
+
     try {
-      await uploadWaypoints([{
-        lat:   destLoc.lat,
-        lon:   destLoc.lng,
-        alt:   TARGET_ALTITUDE_M,
-        label: "B",
-      }]);
+      await uploadWaypoints(uploadList, speedMs);
       await ros2Start();
-      addNewLogEntry(FlightState.EN_ROUTE,
-        `ROS2: Waypoint sent → (${destLoc.lat.toFixed(6)}, ${destLoc.lng.toFixed(6)})`);
-    } catch {
-      addNewLogEntry(FlightState.EN_ROUTE,
-        "ROS2: Backend not reachable — running in simulation mode only.");
+      addNewLogEntry(FlightState.EN_ROUTE, `ROS2: ${uploadList.length} waypoint(s) sent, max speed ${speedMs} m/s.`);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setFlightState(FlightState.IDLE);
+        addNewLogEntry(FlightState.IDLE, `ROS2: Mission rejected (${e.message}) — not ready.`);
+      } else {
+        addNewLogEntry(FlightState.EN_ROUTE,
+          "ROS2: Backend not reachable — running in simulation mode only.");
+      }
     }
   };
 
@@ -290,8 +349,44 @@ export default function App() {
     try {
       await armDrone();
       addNewLogEntry(flightState, "ROS2: ARM command sent to drone.");
-    } catch {
-      addNewLogEntry(flightState, "ROS2: Backend not reachable — cannot arm.");
+    } catch (e) {
+      if (e instanceof ApiError) {
+        addNewLogEntry(flightState, `ROS2: Arm rejected — ${e.message}`);
+      } else {
+        addNewLogEntry(flightState, "ROS2: Backend not reachable — cannot arm.");
+      }
+    }
+  };
+
+  // ── Mission stops (map-click-driven, Feature 1/2) ────
+  const addWaypointFromMap = (loc: LatLng) => {
+    const label = String.fromCharCode('B'.charCodeAt(0) + nextStopLetter.current);
+    nextStopLetter.current += 1;
+    setWaypoints(prev => [...prev, { label, lat: loc.lat, lng: loc.lng, alt: TARGET_ALTITUDE_M, markerStatus: 'idle' }]);
+  };
+
+  const updateWaypointAlt = (label: string, alt: number) => {
+    setWaypoints(prev => prev.map(w => (w.label === label ? { ...w, alt } : w)));
+  };
+
+  const removeWaypoint = (label: string) => {
+    setWaypoints(prev => prev.filter(w => w.label !== label));
+  };
+
+  const generateWaypointMarker = async (label: string) => {
+    const wp = waypoints.find(w => w.label === label);
+    if (!wp) return;
+    setWaypoints(prev => prev.map(w => (w.label === label ? { ...w, markerStatus: 'generating' } : w)));
+    try {
+      const res = await generateMarker(label, wp.lat, wp.lng, wp.markerId);
+      setWaypoints(prev => prev.map(w => (w.label === label
+        ? { ...w, markerId: res.marker_id, markerStatus: 'spawned' } : w)));
+      addNewLogEntry(flightState, `ArUco marker #${res.marker_id} spawned for stop ${label}.`);
+    } catch (e) {
+      setWaypoints(prev => prev.map(w => (w.label === label ? { ...w, markerStatus: 'error' } : w)));
+      addNewLogEntry(flightState, e instanceof ApiError
+        ? `Marker generation failed for ${label}: ${e.message}`
+        : `Marker generation failed for ${label}: backend unreachable.`);
     }
   };
 
@@ -316,6 +411,7 @@ export default function App() {
     setDronePos({ lat: startLoc.lat, lng: startLoc.lng, heading: 0 });
     setMissionTimeSec(0);
     setCurrentPathIndex(0);
+    setTraveledPath([]);
     setSensors(prev => ({ ...prev, pitch: 0, roll: 0, yaw: 0, barometerAltitudeM: 0, obstacleAvoidanceActive: false }));
     addNewLogEntry(FlightState.IDLE, "SYSTEM RESET: All telemetry cleared. Drone returned to base.");
   };
@@ -467,24 +563,31 @@ export default function App() {
       {/* Main layout */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-7 relative z-10">
 
+        <ConnectivityBanner nodeStatus={nodeStatus} wsConnected={wsConnected} />
+
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
           <div className="lg:col-span-8 flex flex-col gap-6">
-            <MapPane
-              apiKey={API_KEY}
-              hasValidKey={hasValidKey}
-              startLoc={startLoc}
-              destLoc={destLoc}
-              dronePos={dronePos}
-              obstacles={obstacles}
-              flightState={flightState}
-              onSetStartLoc={setStartLoc}
-              onSetDestLoc={setDestLoc}
-              plannedPath={plannedPath}
-              directPath={directPath}
-              avoidanceActive={sensors.obstacleAvoidanceActive}
-              emergencyLandingActive={flightState === FlightState.EMERGENCY_LANDING}
-            />
+            <MapErrorBoundary>
+              <MapPane
+                apiKey={API_KEY}
+                hasValidKey={hasValidKey}
+                startLoc={startLoc}
+                destLoc={destLoc}
+                dronePos={dronePos}
+                obstacles={obstacles}
+                flightState={flightState}
+                onSetStartLoc={setStartLoc}
+                onSetDestLoc={setDestLoc}
+                onAddWaypoint={addWaypointFromMap}
+                waypoints={waypoints}
+                traveledPath={traveledPath}
+                plannedPath={plannedPath}
+                directPath={directPath}
+                avoidanceActive={sensors.obstacleAvoidanceActive}
+                emergencyLandingActive={flightState === FlightState.EMERGENCY_LANDING}
+              />
+            </MapErrorBoundary>
             <TelemetryLogStream logs={logs} onClearLogs={() => setLogs([])} />
           </div>
 
@@ -505,18 +608,32 @@ export default function App() {
               activePathLength={plannedPath.length}
               gpsSyncStatus={gpsSyncStatus}
               gpsSyncError={gpsSyncError}
+              homeLastSyncedAt={homeLastSyncedAt}
               onSyncLaptopLocation={syncLaptopLocation}
               missionTimeSec={missionTimeSec}
               ros2Connected={ros2Connected}
               droneStatus={droneStatus}
               onArmDrone={armDroneHandler}
+              allClear={nodeStatus ? nodeStatus.all_clear : !wsConnected}
             />
+            <WaypointList
+              waypoints={waypoints}
+              onUpdateAlt={updateWaypointAlt}
+              onRemove={removeWaypoint}
+              onGenerateMarker={generateWaypointMarker}
+              speedMs={speedMs}
+              onSetSpeedMs={setSpeedMs}
+              mode={mode}
+              abortAltitudeM={ABORT_ALTITUDE_M}
+              disabled={wsConnected && nodeStatus ? !nodeStatus.all_clear : false}
+            />
+            <DroneProfilePanel mode={mode} onModeChange={setModeState} />
             <TelemetryInsights logs={logs} />
           </div>
 
         </section>
 
-        <section>
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <CameraFeed
             dronePos={dronePos}
             flightState={flightState}
@@ -525,6 +642,7 @@ export default function App() {
             sensors={sensors}
             ros2Connected={ros2Connected}
           />
+          <IMUGraph imu={imu} ros2Connected={ros2Connected} />
         </section>
 
         <section>
