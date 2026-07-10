@@ -76,7 +76,7 @@ export default function App() {
   useEffect(() => { getMode().then(({ mode }) => setModeState(mode)).catch(() => {}); }, []);
 
   // ── Live WebSocket push: node/preflight status, IMU, position ───────
-  const { connected: wsConnected, nodeStatus, imu, position: wsPosition } = useSystemStatusSocket();
+  const { connected: wsConnected, nodeStatus, imu, position: wsPosition, missionState: wsMissionState } = useSystemStatusSocket();
 
   // ── Simulation ──────────────────────────────────────
   const [simulationWindSpeed, setSimulationWindSpeed] = useState<number>(8.5);
@@ -234,32 +234,39 @@ export default function App() {
           }));
         }
 
-        // Update altitude from ROS2
-        if (typeof status.altitude === 'number') {
+        // Update altitude from ROS2 — only when the WebSocket push isn't live;
+        // once it is, wsPosition.altitude is the source and this is a fallback.
+        if (!wsConnected && typeof status.altitude === 'number') {
           setSensors(prev => ({ ...prev, barometerAltitudeM: status.altitude }));
         }
 
-        // Sync mission state from ROS2
-        if (status.mission_state === "MISSION_COMPLETE" && flightState === FlightState.EN_ROUTE) {
-          setFlightState(FlightState.LANDED_SAFE);
-          addNewLogEntry(FlightState.LANDED_SAFE, "ROS2: Mission complete — drone landed.");
-        }
-        if (status.mission_state === "MISSION_ABORT" && flightState !== FlightState.EMERGENCY_LANDING) {
-          setFlightState(FlightState.EMERGENCY_LANDING);
-          addNewLogEntry(FlightState.EMERGENCY_LANDING, "ROS2: Mission aborted by system.");
-        }
+        // Sync mission state from ROS2 — same WS-primary/REST-fallback split
+        // as position/altitude above (wsMissionState effect handles the live case).
+        if (!wsConnected) {
+          if (status.mission_state === "MISSION_COMPLETE" && flightState === FlightState.EN_ROUTE) {
+            setFlightState(FlightState.LANDED_SAFE);
+            addNewLogEntry(FlightState.LANDED_SAFE, "ROS2: Mission complete — drone landed.");
+          }
+          if (status.mission_state === "MISSION_ABORT" && flightState !== FlightState.EMERGENCY_LANDING) {
+            setFlightState(FlightState.EMERGENCY_LANDING);
+            addNewLogEntry(FlightState.EMERGENCY_LANDING, "ROS2: Mission aborted by system.");
+          }
 
-        // Safety: abort if altitude overshoots the 2.5m target by ~0.5m
-        if (typeof status.altitude === 'number' &&
-            status.altitude >= ABORT_ALTITUDE_M &&
-            flightState === FlightState.EN_ROUTE) {
-          addNewLogEntry(FlightState.EMERGENCY_LANDING,
-            `SAFETY: Altitude ${status.altitude.toFixed(1)}m exceeded ${ABORT_ALTITUDE_M}m limit — aborting.`);
-          setFlightState(FlightState.EMERGENCY_LANDING);
-          try {
-            await abortMission();
-          } catch {
-            // Backend unreachable — local state already reflects the abort
+          // Safety: abort if altitude overshoots the 2.5m target by ~0.5m.
+          // The backend enforces this abort authoritatively regardless of the
+          // dashboard; this is a REST-fallback client-side trip for when the
+          // WebSocket (which already reflects the backend's own abort) is down.
+          if (typeof status.altitude === 'number' &&
+              status.altitude >= ABORT_ALTITUDE_M &&
+              flightState === FlightState.EN_ROUTE) {
+            addNewLogEntry(FlightState.EMERGENCY_LANDING,
+              `SAFETY: Altitude ${status.altitude.toFixed(1)}m exceeded ${ABORT_ALTITUDE_M}m limit — aborting.`);
+            setFlightState(FlightState.EMERGENCY_LANDING);
+            try {
+              await abortMission();
+            } catch {
+              // Backend unreachable — local state already reflects the abort
+            }
           }
         }
 
@@ -276,6 +283,7 @@ export default function App() {
   useEffect(() => {
     if (!wsPosition || !wsConnected) return;
     setDronePos({ lat: wsPosition.lat, lng: wsPosition.lon, heading: wsPosition.heading });
+    setSensors(prev => ({ ...prev, barometerAltitudeM: wsPosition.altitude }));
     if (flightState === FlightState.EN_ROUTE) {
       setTraveledPath(prev => {
         const next = [...prev, { lat: wsPosition.lat, lng: wsPosition.lon }];
@@ -289,6 +297,21 @@ export default function App() {
     if (!imu || !wsConnected) return;
     setSensors(prev => ({ ...prev, pitch: imu.pitch, roll: imu.roll }));
   }, [imu, wsConnected]);
+
+  // ── WebSocket mission-state push (Feature 7) — WS-primary, REST poll above
+  // only takes over when the socket is down ──
+  useEffect(() => {
+    if (!wsMissionState || !wsConnected) return;
+    const state = wsMissionState.mission_state;
+    if (state === "MISSION_COMPLETE" && flightState === FlightState.EN_ROUTE) {
+      setFlightState(FlightState.LANDED_SAFE);
+      addNewLogEntry(FlightState.LANDED_SAFE, "ROS2: Mission complete — drone landed.");
+    }
+    if (state === "MISSION_ABORT" && flightState !== FlightState.EMERGENCY_LANDING) {
+      setFlightState(FlightState.EMERGENCY_LANDING);
+      addNewLogEntry(FlightState.EMERGENCY_LANDING, "ROS2: Mission aborted by system.");
+    }
+  }, [wsMissionState, wsConnected, flightState]);
 
   // ── Path calculation ────────────────────────────────
   const calculateFlightPath = () => {

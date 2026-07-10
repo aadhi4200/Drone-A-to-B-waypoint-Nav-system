@@ -20,9 +20,10 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from mavros_msgs.msg import HomePosition, State
-from mavros_msgs.srv import ParamSet
 from nav_msgs.msg import Odometry
 from pydantic import BaseModel
+from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.srv import SetParameters
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import BatteryState, Image, Imu, NavSatFix
@@ -453,7 +454,13 @@ class BridgeNode(Node):
         self.create_subscription(String, "/camera_node/heartbeat", self._make_heartbeat_cb("camera_node"), 10)
         self.create_subscription(String, TOPIC_MISSION_SAFETY_EVENT, self._safety_event_cb, 10)
 
-        self.param_set_client = self.create_client(ParamSet, "/mavros/param/set")
+        # NOTE: not mavros_msgs/srv/ParamSet — confirmed 2026-07-10 that
+        # /mavros/param/set now serves ParamSetV2 in this MAVROS version, a
+        # type mismatch a ParamSet-typed client can never discover (its
+        # service_is_ready() just stays permanently False, no error). The
+        # standard ROS2 parameter service works reliably (verified live,
+        # including a real arm succeeding once NAV_DLL_ACT was set this way).
+        self.param_set_client = self.create_client(SetParameters, "/mavros/param/set_parameters")
 
         # ── Internal state ─────────────────────────
         self.mission_state = "IDLE"
@@ -465,6 +472,8 @@ class BridgeNode(Node):
         self.battery_pct   = 100.0
         self.flight_mode   = "UNKNOWN"
         self.mavros_connected = False
+        self.nav_dll_act_confirmed = False
+        self._nav_dll_act_timer = None
         self.alt_abort_triggered = False
         self.home_lat = self.home_lon = None
 
@@ -511,6 +520,8 @@ class BridgeNode(Node):
         prev = self.mission_state
         self.mission_state = msg.data
         self.node_last_seen["mission_manager"] = time.monotonic()
+        if prev != msg.data:
+            push_from_ros_thread({"type": "mission_state", "mission_state": msg.data})
         if prev not in AIRBORNE_MISSION_STATES and msg.data in AIRBORNE_MISSION_STATES:
             self.current_mission_id = db.start_mission(self.home_lat, self.home_lon)
         elif prev in AIRBORNE_MISSION_STATES and msg.data not in AIRBORNE_MISSION_STATES:
@@ -524,9 +535,72 @@ class BridgeNode(Node):
         self.node_last_seen["drone_base"] = time.monotonic()
 
     def _state_cb(self, msg):
+        prev_connected = self.mavros_connected
         self.flight_mode = msg.mode
         self.mavros_connected = msg.connected
         self.mavros_state_last_seen = time.monotonic()
+        if msg.connected and not prev_connected:
+            self.nav_dll_act_confirmed = False
+            if self._nav_dll_act_timer is None:
+                self._nav_dll_act_timer = self.create_timer(3.0, self._disable_gcs_link_failsafe)
+        elif not msg.connected:
+            # Reconnect later may land on a fresh PX4 process (param not
+            # guaranteed persisted) — re-arm the retry loop next connect.
+            self.nav_dll_act_confirmed = False
+
+    def _disable_gcs_link_failsafe(self):
+        """This project has no human-operated GCS (QGroundControl) — the
+        website + MAVROS + companion nodes are the only link. PX4's
+        NAV_DLL_ACT defaults to a nonzero "data link loss" failsafe action
+        that requires a GCS heartbeat to arm at all (verified: with the
+        default value, /mavros/cmd/arming fails every time with "Arming
+        denied: Resolve system health failures first" — see
+        rcAndDataLinkCheck.cpp's gcs_connection_required check).
+
+        Runs on a retry timer, not a one-shot attempt: the param-set client
+        may not have finished its service-discovery handshake yet at the
+        moment MAVROS first reports connected (confirmed: happens whenever
+        this node starts *after* MAVROS is already up, not just on a fresh
+        simultaneous boot) — a single service_is_ready() check right at the
+        connection event is not reliable enough for something arming
+        depends on.
+        """
+        if self.nav_dll_act_confirmed or not self.mavros_connected:
+            return
+        future = self._set_mavros_param("NAV_DLL_ACT", integer=0)
+        if future is None:
+            self.get_logger().warn("NAV_DLL_ACT set retrying — param service not ready yet")
+            return
+
+        def _on_result(f):
+            ok = bool(f.result().results) and f.result().results[0].successful
+            self.get_logger().info(f"NAV_DLL_ACT set -> 0: {ok}")
+            if ok:
+                self.nav_dll_act_confirmed = True
+                if self._nav_dll_act_timer is not None:
+                    self._nav_dll_act_timer.cancel()
+                    self._nav_dll_act_timer = None
+
+        future.add_done_callback(_on_result)
+
+    def _set_mavros_param(self, name: str, *, integer: int = None, real: float = None):
+        """Set an FCU parameter via MAVROS's ROS2-native parameter service
+        (/mavros/param/set_parameters, rcl_interfaces/srv/SetParameters) —
+        NOT mavros_msgs/srv/ParamSet, which this MAVROS version's
+        /mavros/param/set actually serves as ParamSetV2 instead (a type
+        mismatch a ParamSet client can never discover). Returns the pending
+        future, or None if the service isn't discovered yet (caller decides
+        whether/how to retry).
+        """
+        if not self.param_set_client.service_is_ready():
+            return None
+        value = (ParameterValue(type=ParameterType.PARAMETER_INTEGER, integer_value=integer)
+                  if integer is not None else
+                  ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=real))
+        req = SetParameters.Request(parameters=[Parameter(name=name, value=value)])
+        return self.param_set_client.call_async(req)
+
+        future.add_done_callback(_on_result)
 
     def _home_cb(self, msg: HomePosition):
         self.home_lat = msg.geo.latitude
@@ -552,6 +626,7 @@ class BridgeNode(Node):
         if self.altitude >= ABORT_ALTITUDE_M and not self.alt_abort_triggered:
             self.alt_abort_triggered = True
             self.mission_state = "MISSION_ABORT"
+            push_from_ros_thread({"type": "mission_state", "mission_state": "MISSION_ABORT"})
             self.get_logger().warn(
                 f"SAFETY: altitude {self.altitude:.2f}m >= {ABORT_ALTITUDE_M}m limit — aborting mission")
             abort_msg = String(); abort_msg.data = "ABORT"
@@ -697,15 +772,13 @@ class BridgeNode(Node):
 
     # ── Feature 5 (section 6): mission-level max speed via MAVROS ────────
     def set_max_speed(self, speed_ms: float):
-        if not self.param_set_client.service_is_ready():
+        future = self._set_mavros_param("MPC_XY_VEL_MAX", real=float(speed_ms))
+        if future is None:
             self.get_logger().warn("MAVROS param/set service not ready — speed not applied")
             return
-        req = ParamSet.Request()
-        req.param_id = "MPC_XY_VEL_MAX"
-        req.value.real = float(speed_ms)
-        future = self.param_set_client.call_async(req)
         future.add_done_callback(
-            lambda f: self.get_logger().info(f"MPC_XY_VEL_MAX set -> {f.result().success}"))
+            lambda f: self.get_logger().info(
+                f"MPC_XY_VEL_MAX set -> {bool(f.result().results) and f.result().results[0].successful}"))
 
 
 def main():

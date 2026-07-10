@@ -134,7 +134,12 @@ export interface PositionMessage {
   altitude: number;
 }
 
-export type SystemStatusMessage = NodeStatusMessage | ImuMessage | PositionMessage;
+export interface MissionStateMessage {
+  type: 'mission_state';
+  mission_state: string;
+}
+
+export type SystemStatusMessage = NodeStatusMessage | ImuMessage | PositionMessage | MissionStateMessage;
 
 // ── Hardware profile / range estimate (Feature 11) ───────────────────────
 export interface DroneProfile {

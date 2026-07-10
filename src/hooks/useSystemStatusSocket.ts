@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { WS_BASE } from '../api';
-import { NodeStatusMessage, ImuMessage, PositionMessage } from '../types';
+import { NodeStatusMessage, ImuMessage, PositionMessage, MissionStateMessage } from '../types';
 
 // Plain WebSocket (no library needed) with reconnect-with-backoff. Losing
 // this socket must never affect the drone — it only drives the dashboard,
@@ -11,6 +11,7 @@ export function useSystemStatusSocket() {
   const [nodeStatus, setNodeStatus] = useState<NodeStatusMessage | null>(null);
   const [imu, setImu] = useState<ImuMessage | null>(null);
   const [position, setPosition] = useState<PositionMessage | null>(null);
+  const [missionState, setMissionState] = useState<MissionStateMessage | null>(null);
   const retryRef = useRef(0);
 
   useEffect(() => {
@@ -32,6 +33,7 @@ export function useSystemStatusSocket() {
           if (msg.type === 'node_status') setNodeStatus(msg as NodeStatusMessage);
           else if (msg.type === 'imu') setImu(msg as ImuMessage);
           else if (msg.type === 'position') setPosition(msg as PositionMessage);
+          else if (msg.type === 'mission_state') setMissionState(msg as MissionStateMessage);
         } catch {
           // ignore malformed frame
         }
@@ -54,5 +56,5 @@ export function useSystemStatusSocket() {
     };
   }, []);
 
-  return { connected, nodeStatus, imu, position };
+  return { connected, nodeStatus, imu, position, missionState };
 }
