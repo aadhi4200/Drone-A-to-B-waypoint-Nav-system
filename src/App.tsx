@@ -142,7 +142,12 @@ export default function App() {
         // IS setting home, not two separate steps.
         const syncedAt = new Date().toISOString();
         setHomeLastSyncedAt(syncedAt);
-        setHome(userLat, userLng).catch(() => {
+        setHome(userLat, userLng).then((res) => {
+          if (res.relaunch_needed) {
+            addNewLogEntry(FlightState.IDLE,
+              "WARNING: SITL is already running with a different home — relaunch the sim for the synced location to take effect.");
+          }
+        }).catch(() => {
           addNewLogEntry(FlightState.IDLE, "ROS2: Backend unreachable — home sync not persisted.");
         });
       },

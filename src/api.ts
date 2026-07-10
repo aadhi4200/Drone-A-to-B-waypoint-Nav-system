@@ -73,7 +73,7 @@ export async function generateMarker(label: string, lat: number, lon: number, ma
 
 // ── Feature 2 (3.3): laptop-geolocation-driven SITL home ─────────────────
 export async function setHome(lat: number, lon: number) {
-  return post('/system/set-home', { lat, lon });
+  return post('/system/set-home', { lat, lon }) as Promise<{ status: string; relaunch_needed: boolean }>;
 }
 export interface HomeSyncState { lat: number | null; lon: number | null; synced_at: string | null; }
 export async function getHome(): Promise<HomeSyncState> {

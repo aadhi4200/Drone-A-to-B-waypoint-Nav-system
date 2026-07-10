@@ -269,7 +269,18 @@ def set_home(req: SetHomeRequest):
     os.makedirs(os.path.dirname(LAST_SYNCED_HOME_FILE), exist_ok=True)
     with open(LAST_SYNCED_HOME_FILE, "w") as f:
         f.write(f"{req.lat},{req.lon}")
-    return {"status": "ok"}
+
+    # SITL's home is baked in at PX4 launch time from this same file (see
+    # launch_full_sim.sh Stage 1) — syncing after PX4 is already up changes
+    # what's on disk but not the running instance, so the home_position_match
+    # gate will keep failing until the sim is relaunched.
+    relaunch_needed = (
+        ros_node is not None
+        and ros_node.mavros_connected
+        and ros_node.home_lat is not None
+        and gps_distance_m(ros_node.home_lat, ros_node.home_lon, req.lat, req.lon) > HOME_MISMATCH_THRESHOLD_M
+    )
+    return {"status": "ok", "relaunch_needed": relaunch_needed}
 
 
 @app.get("/system/home")
@@ -463,6 +474,16 @@ class BridgeNode(Node):
         self.node_last_seen["drone_base"] = time.monotonic()  # first /drone_base/status may lag briefly
         self._last_gate_key = None
 
+        # MAVROS-derived liveness (Feature 9 fix): mavros_connected/gps_lock/
+        # battery_ok were being read as one-shot cached booleans that only
+        # ever moved forward — once MAVROS said "connected" they stayed
+        # true forever, even after MAVROS/PX4 died, so the gate would
+        # report ALL_CLEAR against a dead stack. Track last-message time for
+        # each, same staleness pattern as node_last_seen above.
+        self.mavros_state_last_seen = None
+        self.gps_last_seen = None
+        self.battery_last_seen = None
+
         # Marker generation (Feature 1)
         self.marker_assignments = {}
         self.next_auto_marker_id = ARUCO_ID_AUTO_START
@@ -503,15 +524,16 @@ class BridgeNode(Node):
     def _state_cb(self, msg):
         self.flight_mode = msg.mode
         self.mavros_connected = msg.connected
+        self.mavros_state_last_seen = time.monotonic()
 
     def _home_cb(self, msg: HomePosition):
-        if self.home_lat is None:
-            self.home_lat = msg.geo.latitude
-            self.home_lon = msg.geo.longitude
+        self.home_lat = msg.geo.latitude
+        self.home_lon = msg.geo.longitude
 
     def _gps_cb(self, msg: NavSatFix):
         self.current_lat = msg.latitude
         self.current_lon = msg.longitude
+        self.gps_last_seen = time.monotonic()
         push_from_ros_thread({
             "type": "position",
             "lat": msg.latitude, "lon": msg.longitude,
@@ -552,6 +574,7 @@ class BridgeNode(Node):
         })
 
     def _battery_cb(self, msg: BatteryState):
+        self.battery_last_seen = time.monotonic()
         if msg.percentage is not None and msg.percentage >= 0:
             self.battery_pct = msg.percentage * 100.0
 
@@ -606,14 +629,26 @@ class BridgeNode(Node):
         return [name for name, seen in self.node_last_seen.items()
                 if seen is None or (now - seen) > NODE_HEARTBEAT_STALE_S]
 
+    @staticmethod
+    def _is_stale(last_seen):
+        return last_seen is None or (time.monotonic() - last_seen) > NODE_HEARTBEAT_STALE_S
+
     def all_clear(self):
         stale = self._stale_nodes()
+        # mavros_connected/gps_lock/battery_ok used to be one-shot cached
+        # booleans: once true, they stayed true forever, even after MAVROS
+        # died and stopped publishing entirely — so the gate could report
+        # ALL_CLEAR against a fully dead stack. Require a *recent* message
+        # on each underlying topic, not just "ever received one".
+        mavros_connected = self.mavros_connected and not self._is_stale(self.mavros_state_last_seen)
+        gps_lock = (self.current_lat != 0.0 or self.current_lon != 0.0) and not self._is_stale(self.gps_last_seen)
+        battery_ok = self.battery_pct > 10.0 and not self._is_stale(self.battery_last_seen)
         checks = {
-            "mavros_connected": self.mavros_connected,
+            "mavros_connected": mavros_connected,
             "nodes_alive": len(stale) == 0,
-            "gps_lock": self.current_lat != 0.0 or self.current_lon != 0.0,
+            "gps_lock": gps_lock,
             "home_set": self.home_lat is not None,
-            "battery_ok": self.battery_pct > 10.0,
+            "battery_ok": battery_ok,
             "home_position_match": not self._home_mismatch(),
             "geofence_valid": self._geofence_valid(),
         }
