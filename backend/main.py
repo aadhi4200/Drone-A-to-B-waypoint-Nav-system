@@ -32,6 +32,8 @@ import db
 import range_estimate
 from drone_interfaces.aruco_marker import write_pad_model_everywhere
 from drone_interfaces.constants import (ARUCO_ID_AUTO_START,
+                                          BATTERY_HEARTBEAT_STALE_S,
+                                          MAVROS_STATE_STALE_S,
                                           NODE_HEARTBEAT_STALE_S,
                                           TOPIC_MISSION_SAFETY_EVENT)
 from drone_interfaces.geo import gps_distance_m, gps_to_local
@@ -630,8 +632,8 @@ class BridgeNode(Node):
                 if seen is None or (now - seen) > NODE_HEARTBEAT_STALE_S]
 
     @staticmethod
-    def _is_stale(last_seen):
-        return last_seen is None or (time.monotonic() - last_seen) > NODE_HEARTBEAT_STALE_S
+    def _is_stale(last_seen, threshold=NODE_HEARTBEAT_STALE_S):
+        return last_seen is None or (time.monotonic() - last_seen) > threshold
 
     def all_clear(self):
         stale = self._stale_nodes()
@@ -640,9 +642,9 @@ class BridgeNode(Node):
         # died and stopped publishing entirely — so the gate could report
         # ALL_CLEAR against a fully dead stack. Require a *recent* message
         # on each underlying topic, not just "ever received one".
-        mavros_connected = self.mavros_connected and not self._is_stale(self.mavros_state_last_seen)
+        mavros_connected = self.mavros_connected and not self._is_stale(self.mavros_state_last_seen, MAVROS_STATE_STALE_S)
         gps_lock = (self.current_lat != 0.0 or self.current_lon != 0.0) and not self._is_stale(self.gps_last_seen)
-        battery_ok = self.battery_pct > 10.0 and not self._is_stale(self.battery_last_seen)
+        battery_ok = self.battery_pct > 10.0 and not self._is_stale(self.battery_last_seen, BATTERY_HEARTBEAT_STALE_S)
         checks = {
             "mavros_connected": mavros_connected,
             "nodes_alive": len(stale) == 0,
