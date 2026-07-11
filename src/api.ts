@@ -110,6 +110,14 @@ export async function abortMission() {
   return post('/mission/abort');
 }
 
+export async function returnHome() {
+  return post('/mission/return-home');
+}
+
+export async function resetMission() {
+  return post('/mission/reset');
+}
+
 export async function armDrone() {
   return post('/drone/arm');
 }

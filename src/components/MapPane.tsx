@@ -147,6 +147,12 @@ export default function MapPane({
   const startMarkerRef = useRef<maplibregl.Marker | null>(null);
   const destMarkerRef = useRef<maplibregl.Marker | null>(null);
   const droneMarkerRef = useRef<maplibregl.Marker | null>(null);
+  // Direct reference to the rotating inner icon node, captured once at
+  // creation time -- avoids re-querying '#maplibre-drone-wrapper > div:last-child'
+  // via the DOM on every update, which is fragile (depends on exact child
+  // ordering never changing) and was the leading suspect for the marker's
+  // rotation appearing frozen.
+  const droneRotateNodeRef = useRef<HTMLElement | null>(null);
   const obstacleMarkersRef = useRef<maplibregl.Marker[]>([]);
   const waypointMarkersRef = useRef<maplibregl.Marker[]>([]);
 
@@ -371,6 +377,7 @@ export default function MapPane({
       startMarkerRef.current = null;
       destMarkerRef.current = null;
       droneMarkerRef.current = null;
+      droneRotateNodeRef.current = null;
       obstacleMarkersRef.current.forEach(m => m.remove());
       obstacleMarkersRef.current = [];
       waypointMarkersRef.current.forEach(m => m.remove());
@@ -385,29 +392,22 @@ export default function MapPane({
     const map = mapRef.current;
     if (!map) return;
 
-    // 1. Sync start marker
-    if (!startMarkerRef.current) {
-      const el = document.createElement('div');
-      el.className = 'custom-start-icon';
-      el.innerHTML = `
-        <div class="flex items-center justify-center w-8 h-8 rounded-full bg-slate-950/80 border border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)] text-amber-500 font-bold">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <ellipse cx="12" cy="5" rx="3" ry="3"></ellipse>
-            <path d="M12 22V8M5 12h14"></path>
-          </svg>
-        </div>
-      `;
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([startLoc.lng, startLoc.lat])
-        .addTo(map);
-      startMarkerRef.current = marker;
-    } else {
-      startMarkerRef.current.setLngLat([startLoc.lng, startLoc.lat]);
+    // 1. Start marker -- removed from view per operator request (the drone
+    // arrow marker was being confused with it). startLoc itself is kept as
+    // state (still drives map centering below and distance calculations
+    // elsewhere) -- only its visual marker is gone. Clean up any marker a
+    // stale render already created so nothing lingers on a hot-reload.
+    if (startMarkerRef.current) {
+      startMarkerRef.current.remove();
+      startMarkerRef.current = null;
     }
 
-    if (flightState === FlightState.IDLE) {
-      map.panTo([startLoc.lng, startLoc.lat]);
-    }
+    // (IDLE recentering moved to its own effect below -- it used to live
+    // here, but this effect re-runs on EVERY dronePos tick, so the camera
+    // was being re-panned toward startLoc many times per second. That
+    // continuous easing fought all manual pan/zoom and, on the pitched 3D
+    // view, read as the arrow marker steadily sliding away -- confirmed
+    // live 2026-07-11 with telemetry proven stationary at the time.)
 
     // 2. Sync destination marker
     if (destLoc) {
@@ -437,7 +437,20 @@ export default function MapPane({
     }
 
     // 3. Sync Drone position & heading overlay
-    if (!droneMarkerRef.current) {
+    // Guard against an orphaned marker: if a previous marker's element is no
+    // longer actually attached to the document (can happen if this effect
+    // re-ran without MapLibre's own element being torn down first), treat it
+    // as gone and rebuild cleanly rather than trying to update a detached,
+    // frozen-in-place node -- confirmed live 2026-07-11 as the drone icon
+    // appearing to "float" at a fixed screen position unrelated to its real
+    // map coordinate, with rotation stuck at whatever it was when orphaned.
+    const droneMarkerIsLive = droneMarkerRef.current
+      && document.body.contains(droneMarkerRef.current.getElement());
+    if (!droneMarkerIsLive) {
+      if (droneMarkerRef.current) {
+        droneMarkerRef.current.remove();
+        droneMarkerRef.current = null;
+      }
       const el = document.createElement('div');
       el.className = 'custom-drone-icon';
       el.innerHTML = `
@@ -454,12 +467,15 @@ export default function MapPane({
         .setLngLat([dronePos.lng, dronePos.lat])
         .addTo(map);
       droneMarkerRef.current = marker;
+      // Captured ONCE here, at creation time -- every subsequent rotation
+      // update below reads this direct reference instead of re-querying the
+      // DOM via a CSS selector on every render.
+      droneRotateNodeRef.current = el.querySelector<HTMLElement>('#maplibre-drone-wrapper > div:last-child');
       droneRenderPosRef.current = { lat: dronePos.lat, lng: dronePos.lng };
     } else {
       animateDroneTo({ lat: dronePos.lat, lng: dronePos.lng });
-      const rotNode = droneMarkerRef.current.getElement().querySelector('#maplibre-drone-wrapper > div:last-child');
-      if (rotNode instanceof HTMLElement) {
-        rotNode.style.transform = `rotate(${dronePos.heading}deg)`;
+      if (droneRotateNodeRef.current) {
+        droneRotateNodeRef.current.style.transform = `rotate(${dronePos.heading}deg)`;
       }
     }
 
@@ -468,6 +484,23 @@ export default function MapPane({
       map.setCenter([dronePos.lng, dronePos.lat]);
     }
   }, [startLoc, destLoc, dronePos, flightState]);
+
+  // IDLE recentering — its own effect, keyed on the home COORDINATES (not
+  // dronePos), so it fires once when home actually changes (mount
+  // hydration, a fresh geolocation sync) instead of on every telemetry
+  // tick. panTo alone preserves zoom, so if the camera is sitting at a
+  // world-scale view (seen live 2026-07-11), also restore a usable
+  // operating zoom; otherwise leave the operator's own zoom alone.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (flightState !== FlightState.IDLE) return;
+    if (map.getZoom() < 11) {
+      map.flyTo({ center: [startLoc.lng, startLoc.lat], zoom: 14.5 });
+    } else {
+      map.panTo([startLoc.lng, startLoc.lat]);
+    }
+  }, [startLoc.lat, startLoc.lng, flightState]);
 
   // Sync paths & obstacles to vector layers
   useEffect(() => {

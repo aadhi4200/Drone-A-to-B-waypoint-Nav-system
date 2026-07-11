@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, RotateCcw, ShieldAlert, Zap, Radio, PlaneTakeoff, HelpCircle, Compass, Anchor, AlertTriangle, BatteryCharging, Power, MapPin, Crosshair, Timer } from 'lucide-react';
+import { Play, RotateCcw, ShieldAlert, Zap, Radio, PlaneTakeoff, HelpCircle, Compass, Anchor, AlertTriangle, BatteryCharging, Power, MapPin, Crosshair, Timer, Home } from 'lucide-react';
 import { LatLng, BatteryState, SignalState, FlightState } from '../types';
 
 interface FlightControlPanelProps {
@@ -14,6 +14,7 @@ interface FlightControlPanelProps {
   onPlanPath: () => void;
   onLaunchMission: () => void;
   onEmergencyOverride: () => void;
+  onReturnHome: () => void;
   onResetDrone: () => void;
   activePathLength: number;
   gpsSyncStatus: 'idle' | 'locating' | 'success' | 'error';
@@ -48,6 +49,7 @@ export default function FlightControlPanel({
   onPlanPath,
   onLaunchMission,
   onEmergencyOverride,
+  onReturnHome,
   onResetDrone,
   activePathLength,
   gpsSyncStatus,
@@ -414,6 +416,23 @@ export default function FlightControlPanel({
             <span>Reset System</span>
           </button>
         </div>
+
+        {/* Return Home — flies back to the recorded home position first,
+            then lands; distinct from Emergency Override's land-in-place */}
+        <button
+          id="btn-return-home"
+          disabled={flightState !== FlightState.EN_ROUTE}
+          onClick={onReturnHome}
+          title={flightState !== FlightState.EN_ROUTE ? 'Only available while en route' : 'Fly back to home and land'}
+          className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold font-sans flex items-center justify-center space-x-1.5 border transition-all uppercase ${
+            flightState === FlightState.EN_ROUTE
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 cursor-pointer'
+              : 'bg-white/5 border-white/5 text-slate-600 cursor-not-allowed'
+          }`}
+        >
+          <Home className="w-3.5 h-3.5" />
+          <span>Return Home</span>
+        </button>
 
         {/* EMERGENCY OVERRIDE TRIGGER */}
         <button

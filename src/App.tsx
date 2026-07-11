@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadWaypoints, abortMission, getMissionStatus, armDrone, generateMarker, setHome, getMode, ApiError } from './api';
+import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, generateMarker, setHome, getHome, getMode, ApiError } from './api';
 // NOTE: We import our api functions but rename the local startMission
 // to avoid conflict with the imported one
 import { startMission as ros2Start } from './api';
@@ -28,7 +28,11 @@ const API_KEY =
 const hasValidKey = Boolean(API_KEY) && API_KEY !== 'YOUR_API_KEY' && API_KEY !== '';
 
 const TARGET_ALTITUDE_M = 2.5;
-const ABORT_ALTITUDE_M  = 3.0;
+// Keep in sync with backend/main.py's ABORT_ALTITUDE_M -- must clear
+// RTH_ALTITUDE (drone_interfaces/constants.py, 7.0m) with margin, confirmed
+// live 2026-07-10: with the old 3.0m value, every return-home self-aborted
+// via this exact check mid-climb before ever reaching home.
+const ABORT_ALTITUDE_M  = 10.0;
 
 const STATIC_OBSTACLES: Obstacle[] = [
   { id: "obs_crane_1",  lat: 9.969200, lng: 76.244800, radiusMeters: 45, heightMeters: 35, type: "Harbour Gantry Crane" },
@@ -36,11 +40,48 @@ const STATIC_OBSTACLES: Obstacle[] = [
   { id: "obs_tower_3",  lat: 9.974000, lng: 76.233500, radiusMeters: 40, heightMeters: 48, type: "High-Voltage Power Pylon" },
 ];
 
+// ── Last-known real position, cached across page loads ──────────────────
+// startLoc/dronePos/destLoc used to always start from a hardcoded
+// Kochi-area coordinate, then get corrected asynchronously once
+// getHome()/geolocation resolved -- meaning the wrong city briefly (or, if
+// both of those ever fail, indefinitely) showed on every load, confirmed
+// live 2026-07-11. useState's initializer must be synchronous, so it can't
+// literally await geo access -- but it CAN synchronously read the last
+// value that a *previous* successful sync already wrote to localStorage,
+// which is genuinely "derived from this PC's geo access", just persisted
+// across reloads instead of re-derived from scratch. First-ever run with
+// no cache yet still falls back to the literal default once; every load
+// after any successful sync starts from the real place instead.
+const LAST_KNOWN_POSITION_KEY = 'drone_last_known_position';
+
+function readCachedPosition(): LatLng | null {
+  try {
+    const raw = localStorage.getItem(LAST_KNOWN_POSITION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.lat === 'number' && typeof parsed.lng === 'number') return parsed;
+  } catch {
+    // Corrupt/inaccessible localStorage -- fall through to the hardcoded default.
+  }
+  return null;
+}
+
+function writeCachedPosition(lat: number, lng: number) {
+  try {
+    localStorage.setItem(LAST_KNOWN_POSITION_KEY, JSON.stringify({ lat, lng }));
+  } catch {
+    // Storage full/disabled -- non-fatal, just means next load won't have it cached.
+  }
+}
+
 export default function App() {
   // ── Core location state ─────────────────────────────
-  const [startLoc,   setStartLoc]   = useState<LatLng>({ lat: 9.965800, lng: 76.242100 });
+  const [startLoc,   setStartLoc]   = useState<LatLng>(() => readCachedPosition() ?? { lat: 9.965800, lng: 76.242100 });
   const [destLoc,    setDestLoc]    = useState<LatLng | null>({ lat: 9.973500, lng: 76.248500 });
-  const [dronePos,   setDronePos]   = useState({ lat: 9.965800, lng: 76.242100, heading: 0 });
+  const [dronePos,   setDronePos]   = useState(() => {
+    const cached = readCachedPosition();
+    return cached ? { ...cached, heading: 0 } : { lat: 9.965800, lng: 76.242100, heading: 0 };
+  });
   const [obstacles,  setObstacles]  = useState<Obstacle[]>(STATIC_OBSTACLES);
 
   // ── Path state ──────────────────────────────────────
@@ -112,6 +153,35 @@ export default function App() {
   const didInitialGpsSync  = useRef(false);
 
   // ── GPS sync ────────────────────────────────────────
+  const applySyncedLocation = (userLat: number, userLng: number) => {
+    setStartLoc({ lat: userLat, lng: userLng });
+    setDronePos({ lat: userLat, lng: userLng, heading: 0 });
+    writeCachedPosition(userLat, userLng);
+    setDestLoc({ lat: userLat + 0.0075, lng: userLng + 0.0065 });
+    setObstacles([
+      { id: "local_antenna_1", lat: userLat+0.0034, lng: userLng+0.0028, radiusMeters: 45, heightMeters: 35, type: "RF Antenna Tower" },
+      { id: "local_grid_2",    lat: userLat+0.0015, lng: userLng+0.0048, radiusMeters: 38, heightMeters: 42, type: "Electrical Grid Substation" },
+      { id: "local_pylon_3",   lat: userLat+0.0049, lng: userLng-0.0035, radiusMeters: 48, heightMeters: 48, type: "Transmission Pylon Zone" },
+    ]);
+    setGpsSyncStatus('success');
+    addNewLogEntry(FlightState.IDLE, `GPS LOCK SUCCESS: Lat:${userLat.toFixed(6)} Lng:${userLng.toFixed(6)}`);
+
+    // Sync drone home to wherever the operator actually is (SITL-only —
+    // real hardware already gets true home from GPS at boot). This is
+    // one action from the operator's point of view: syncing location
+    // IS setting home, not two separate steps.
+    const syncedAt = new Date().toISOString();
+    setHomeLastSyncedAt(syncedAt);
+    setHome(userLat, userLng).then((res) => {
+      if (res.relaunch_needed) {
+        addNewLogEntry(FlightState.IDLE,
+          "WARNING: SITL is already running with a different home — relaunch the sim for the synced location to take effect.");
+      }
+    }).catch(() => {
+      addNewLogEntry(FlightState.IDLE, "ROS2: Backend unreachable — home sync not persisted.");
+    });
+  };
+
   const syncLaptopLocation = () => {
     if (!('geolocation' in navigator)) {
       setGpsSyncStatus('error');
@@ -121,48 +191,36 @@ export default function App() {
     setGpsSyncStatus('locating');
     setGpsSyncError(null);
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const userLat = position.coords.latitude;
-        const userLng = position.coords.longitude;
-        setStartLoc({ lat: userLat, lng: userLng });
-        setDronePos({ lat: userLat, lng: userLng, heading: 0 });
-        setDestLoc({ lat: userLat + 0.0075, lng: userLng + 0.0065 });
-        setObstacles([
-          { id: "local_antenna_1", lat: userLat+0.0034, lng: userLng+0.0028, radiusMeters: 45, heightMeters: 35, type: "RF Antenna Tower" },
-          { id: "local_grid_2",    lat: userLat+0.0015, lng: userLng+0.0048, radiusMeters: 38, heightMeters: 42, type: "Electrical Grid Substation" },
-          { id: "local_pylon_3",   lat: userLat+0.0049, lng: userLng-0.0035, radiusMeters: 48, heightMeters: 48, type: "Transmission Pylon Zone" },
-        ]);
-        setGpsSyncStatus('success');
-        addNewLogEntry(FlightState.IDLE, `GPS LOCK SUCCESS: Lat:${userLat.toFixed(6)} Lng:${userLng.toFixed(6)}`);
+    const handleError = (error: GeolocationPositionError) => {
+      setGpsSyncStatus('error');
+      const msgs: Record<number, string> = {
+        1: "Access Refused. Try opening in a separate tab.",
+        2: "Position unavailable.",
+        3: "GPS timeout.",
+      };
+      const msg = msgs[error.code] || error.message;
+      setGpsSyncError(msg);
+      addNewLogEntry(FlightState.IDLE, `GPS LOCK FAILED: ${msg}`);
+    };
 
-        // Sync drone home to wherever the operator actually is (SITL-only —
-        // real hardware already gets true home from GPS at boot). This is
-        // one action from the operator's point of view: syncing location
-        // IS setting home, not two separate steps.
-        const syncedAt = new Date().toISOString();
-        setHomeLastSyncedAt(syncedAt);
-        setHome(userLat, userLng).then((res) => {
-          if (res.relaunch_needed) {
-            addNewLogEntry(FlightState.IDLE,
-              "WARNING: SITL is already running with a different home — relaunch the sim for the synced location to take effect.");
-          }
-        }).catch(() => {
-          addNewLogEntry(FlightState.IDLE, "ROS2: Backend unreachable — home sync not persisted.");
-        });
+    // Try a real GPS-chip-level fix first (best accuracy) with a bounded
+    // wait; only fall back to WiFi/IP-based positioning (faster, but can be
+    // off by hundreds of meters — confirmed live 2026-07-11, drifted ~850m
+    // from the high-accuracy reading) if the precise fix doesn't land in
+    // time. This gets the best of both: precision when a GPS fix is
+    // actually available, reliability (no more indefinite timeout) when
+    // it isn't.
+    navigator.geolocation.getCurrentPosition(
+      (position) => applySyncedLocation(position.coords.latitude, position.coords.longitude),
+      () => {
+        addNewLogEntry(FlightState.IDLE, "GPS: High-accuracy fix unavailable — retrying with network-based location...");
+        navigator.geolocation.getCurrentPosition(
+          (position) => applySyncedLocation(position.coords.latitude, position.coords.longitude),
+          handleError,
+          { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 }
+        );
       },
-      (error) => {
-        setGpsSyncStatus('error');
-        const msgs: Record<number, string> = {
-          1: "Access Refused. Try opening in a separate tab.",
-          2: "Position unavailable.",
-          3: "GPS timeout.",
-        };
-        const msg = msgs[error.code] || error.message;
-        setGpsSyncError(msg);
-        addNewLogEntry(FlightState.IDLE, `GPS LOCK FAILED: ${msg}`);
-      },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
@@ -171,9 +229,42 @@ export default function App() {
     // effects, which would otherwise fire the geolocation request twice.
     if (didInitialGpsSync.current) return;
     didInitialGpsSync.current = true;
-    syncLaptopLocation();
+
+    // Hydrate from the backend's PERSISTED home first -- startLoc/dronePos
+    // are just in-memory React state that otherwise reset to a hardcoded
+    // placeholder (Kochi-area coordinates) on every page load, even though
+    // a real synced home already exists in the database from a previous
+    // session. Confirmed live 2026-07-11: operator was in Trivandrum with
+    // a correctly-persisted Trivandrum home, but the page still showed the
+    // drone at the Kochi default because nothing ever read it back. Live
+    // geolocation below can still refine this further if it succeeds --
+    // this is a fallback for "already synced, not asking again", not a
+    // replacement for it.
+    getHome().then((home) => {
+      if (home.lat != null && home.lon != null) {
+        setStartLoc({ lat: home.lat, lng: home.lon });
+        setDronePos({ lat: home.lat, lng: home.lon, heading: 0 });
+        writeCachedPosition(home.lat, home.lon);
+        if (home.synced_at) setHomeLastSyncedAt(home.synced_at);
+      }
+    }).catch(() => {
+      // Backend unreachable at mount -- fall through to the hardcoded
+      // placeholder via the geolocation call below, same as before.
+    }).finally(() => {
+      syncLaptopLocation();
+    });
   }, []);
-  useEffect(() => { if (startLoc && destLoc) calculateFlightPath(); }, [startLoc, destLoc, obstacles]);
+  // Only the quick single-destination flow, not the multi-stop waypoint
+  // builder -- once the operator has added real waypoints via the map,
+  // destLoc's own marker/path is stale and confusing (they can end up in
+  // completely different places, since destLoc defaults to a hardcoded
+  // placeholder and is never synced to the waypoints array). startMission()
+  // already ignores destLoc once waypoints.length > 0; the map/path should
+  // reflect that same priority instead of showing both at once.
+  useEffect(() => {
+    if (waypoints.length > 0) return;
+    if (startLoc && destLoc) calculateFlightPath();
+  }, [startLoc, destLoc, obstacles, waypoints.length]);
 
   // ── Continuous laptop GPS tracking ───────────────────
   // Keeps dronePos following the real device location while on the ground.
@@ -194,7 +285,9 @@ export default function App() {
         }));
       },
       () => { /* ignore transient watch errors — last known dronePos stands */ },
-      { enableHighAccuracy: true, maximumAge: 2000 }
+      // Same GPS-chip-vs-WiFi-fix reasoning as syncLaptopLocation() above --
+      // enableHighAccuracy:true stalls indefinitely on hardware with no GPS.
+      { enableHighAccuracy: false, maximumAge: 2000 }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
@@ -282,6 +375,10 @@ export default function App() {
   // ── WebSocket position push (Features 8/9) — native rate, not throttled ──
   useEffect(() => {
     if (!wsPosition || !wsConnected) return;
+    // (0,0) is the no-GPS-fix-yet sentinel (same convention the backend's
+    // REST /mission/status now nulls out) — before PX4 has a lock, MAVROS
+    // can still emit NavSatFix zeros, which put the marker at Null Island.
+    if (wsPosition.lat === 0 && wsPosition.lon === 0) return;
     setDronePos({ lat: wsPosition.lat, lng: wsPosition.lon, heading: wsPosition.heading });
     setSensors(prev => ({ ...prev, barometerAltitudeM: wsPosition.altitude }));
     if (flightState === FlightState.EN_ROUTE) {
@@ -390,7 +487,17 @@ export default function App() {
   const addWaypointFromMap = (loc: LatLng) => {
     const label = String.fromCharCode('B'.charCodeAt(0) + nextStopLetter.current);
     nextStopLetter.current += 1;
-    setWaypoints(prev => [...prev, { label, lat: loc.lat, lng: loc.lng, alt: TARGET_ALTITUDE_M, markerStatus: 'idle' }]);
+    setWaypoints(prev => {
+      // Clear any stale quick-flow destination path on the *first* real
+      // waypoint -- otherwise its dashed line lingers, pointing at
+      // destLoc's (often unrelated) location alongside the new waypoint
+      // markers.
+      if (prev.length === 0) {
+        setDirectPath([]);
+        setPlannedPath([]);
+      }
+      return [...prev, { label, lat: loc.lat, lng: loc.lng, alt: TARGET_ALTITUDE_M, markerStatus: 'idle' }];
+    });
   };
 
   const updateWaypointAlt = (label: string, alt: number) => {
@@ -432,8 +539,24 @@ export default function App() {
     }
   };
 
+  // Return Home — distinct from Emergency Override: flies back to the
+  // recorded home position first, then lands, rather than landing in
+  // place. Reuses mission_manager's own RTH path (same one the failsafe
+  // monitor uses for comms/node loss), just operator-triggered.
+  const triggerReturnHome = async () => {
+    if (flightState !== FlightState.EN_ROUTE) return;
+    addNewLogEntry(flightState, "RETURN HOME: Operator requested — flying back to home position.");
+
+    try {
+      await returnHome();
+      addNewLogEntry(flightState, "ROS2: RTH sent to drone.");
+    } catch {
+      addNewLogEntry(flightState, "ROS2: Backend not reachable — return-home not sent.");
+    }
+  };
+
   // ── Reset ───────────────────────────────────────────
-  const resetSystem = () => {
+  const resetSystem = async () => {
     if (mainTickerInterval.current) clearInterval(mainTickerInterval.current);
     setFlightState(FlightState.IDLE);
     setDronePos({ lat: startLoc.lat, lng: startLoc.lng, heading: 0 });
@@ -442,6 +565,18 @@ export default function App() {
     setTraveledPath([]);
     setSensors(prev => ({ ...prev, pitch: 0, roll: 0, yaw: 0, barometerAltitudeM: 0, obstacleAvoidanceActive: false }));
     addNewLogEntry(FlightState.IDLE, "SYSTEM RESET: All telemetry cleared. Drone returned to base.");
+
+    // This used to be purely a local UI reset -- mission_manager's own
+    // state machine never transitioned MISSION_COMPLETE/MISSION_ABORT back
+    // to IDLE on its own, so every mission after the first was silently
+    // ignored ROS2-side even though the website looked ready again. Also
+    // send the real reset so a second mission can actually launch.
+    try {
+      await resetMission();
+      addNewLogEntry(FlightState.IDLE, "ROS2: Mission state machine reset to IDLE.");
+    } catch {
+      addNewLogEntry(FlightState.IDLE, "ROS2: Backend not reachable — local reset only.");
+    }
   };
 
   // ── Toggle heater / cooler ──────────────────────────
@@ -601,7 +736,12 @@ export default function App() {
                 apiKey={API_KEY}
                 hasValidKey={hasValidKey}
                 startLoc={startLoc}
-                destLoc={destLoc}
+                // Suppress the quick-flow destination marker once real
+                // waypoints exist -- otherwise it renders at its own
+                // (unrelated, often stale) location alongside the
+                // waypoint-array markers ("B", "C"...), which is exactly
+                // the confusing overlap this is fixing.
+                destLoc={waypoints.length > 0 ? null : destLoc}
                 dronePos={dronePos}
                 obstacles={obstacles}
                 flightState={flightState}
@@ -632,6 +772,7 @@ export default function App() {
               onPlanPath={calculateFlightPath}
               onLaunchMission={startMission}
               onEmergencyOverride={triggerEmergencyOverride}
+              onReturnHome={triggerReturnHome}
               onResetDrone={resetSystem}
               activePathLength={plannedPath.length}
               gpsSyncStatus={gpsSyncStatus}

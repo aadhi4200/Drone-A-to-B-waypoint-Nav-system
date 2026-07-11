@@ -65,7 +65,13 @@ ros_node = None
 
 # ── Altitude safety limits ────────────────────────
 TARGET_ALTITUDE_M = 2.5
-ABORT_ALTITUDE_M   = 3.0
+# Must clear RTH_ALTITUDE (drone_interfaces/constants.py, currently 7.0m) with
+# margin -- confirmed live 2026-07-10 that RTH_ALTITUDE > ABORT_ALTITUDE_M
+# made every return-home (manual button and the automatic failsafe path
+# alike) self-abort via this exact check mid-climb, before ever reaching
+# home. 10.0m = 7.0m RTH climb + ~3m margin for transient setpoint overshoot
+# (observed up to ~8.3m actual against a 7.0m target in that same test).
+ABORT_ALTITUDE_M   = 10.0
 DEFAULT_MAX_SPEED_MS = 3.0
 HOME_MISMATCH_THRESHOLD_M = 1000.0
 
@@ -201,6 +207,40 @@ def abort():
     return {"status": "ok"}
 
 
+@app.post("/mission/reset")
+def reset():
+    """mission_manager never transitions MISSION_COMPLETE/MISSION_ABORT back
+    to IDLE on its own -- confirmed live 2026-07-10: every /mission/start
+    after a drone's first-ever mission was silently ignored (the node's own
+    "state == IDLE" guard never matched again), which looks exactly like
+    "not taking off" even though the whole stack is healthy. The frontend's
+    "Reset System" button previously only cleared local UI state; this
+    endpoint is what actually resets the ROS2-side state machine so a
+    second mission can launch without restarting the node stack.
+    """
+    if ros_node:
+        msg = String(); msg.data = "RESET"
+        ros_node.cmd_pub.publish(msg)
+    return {"status": "ok"}
+
+
+@app.post("/mission/return-home")
+def return_home():
+    """Operator-triggered RTH — reuses mission_manager's existing RTH:<reason>
+    handling (the same path failsafe_monitor uses for comms/node-loss), just
+    with an explicit reason distinguishing a manual request from an automatic
+    failsafe one in the safety-event log. Not gated by all_clear, same as
+    /mission/abort — an operator needs to be able to call the drone home
+    precisely when connectivity is degraded, not only when it's perfect.
+    mission_manager._trigger_rth() itself no-ops if the mission isn't
+    currently airborne, so this is safe to call at any time.
+    """
+    if ros_node:
+        msg = String(); msg.data = "RTH:MANUAL"
+        ros_node.cmd_pub.publish(msg)
+    return {"status": "ok"}
+
+
 @app.post("/drone/arm")
 def arm_drone():
     _require_all_clear()
@@ -221,11 +261,18 @@ def disarm_drone():
 @app.get("/mission/status")
 def status():
     if ros_node:
+        # current_lat/current_lon default to 0.0 until a real NavSatFix
+        # arrives via _gps_cb -- reporting that sentinel as if it were a
+        # real fix put the dashboard's drone marker at Null Island (0,0)
+        # whenever the backend was up but MAVROS/PX4 wasn't, confirmed live
+        # 2026-07-11. Same 0.0-means-no-fix-yet convention already used by
+        # gps_lock below; the REST payload just wasn't honoring it.
+        has_fix = ros_node.current_lat != 0.0 or ros_node.current_lon != 0.0
         return {
             "mission_state": ros_node.mission_state,
             "drone_status":  ros_node.drone_status,
-            "lat":           ros_node.current_lat,
-            "lon":           ros_node.current_lon,
+            "lat":           ros_node.current_lat if has_fix else None,
+            "lon":           ros_node.current_lon if has_fix else None,
             "altitude":      ros_node.altitude,
             "heading":       ros_node.heading,
             "battery":       ros_node.battery_pct,
@@ -607,6 +654,19 @@ class BridgeNode(Node):
         self.home_lon = msg.geo.longitude
 
     def _gps_cb(self, msg: NavSatFix):
+        # Validate before trusting: under Gazebo CPU load this stack has
+        # produced corrupted telemetry (garbage odometry altitudes, and a
+        # lat=155.52 -- physically impossible -- seen live). A corrupt or
+        # no-fix NavSatFix relayed as-is flings the dashboard marker across
+        # the world map; drop it here so the last good position stands.
+        if msg.status.status < 0:  # NavSatStatus.STATUS_NO_FIX
+            return
+        if not (math.isfinite(msg.latitude) and math.isfinite(msg.longitude)):
+            return
+        if abs(msg.latitude) > 90.0 or abs(msg.longitude) > 180.0:
+            return
+        if msg.latitude == 0.0 and msg.longitude == 0.0:  # no-fix sentinel
+            return
         self.current_lat = msg.latitude
         self.current_lon = msg.longitude
         self.gps_last_seen = time.monotonic()
