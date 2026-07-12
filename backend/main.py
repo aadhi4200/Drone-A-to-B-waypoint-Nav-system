@@ -19,7 +19,8 @@ from cv_bridge import CvBridge
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from mavros_msgs.msg import HomePosition, State
+from mavros_msgs.msg import HomePosition, State, Waypoint as MavWaypoint
+from mavros_msgs.srv import WaypointClear, WaypointPush
 from nav_msgs.msg import Odometry
 from pydantic import BaseModel
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
@@ -36,6 +37,7 @@ from drone_interfaces.constants import (ARUCO_ID_AUTO_START,
                                           BATTERY_HEARTBEAT_STALE_S,
                                           MAVROS_STATE_STALE_S,
                                           NODE_HEARTBEAT_STALE_S,
+                                          RTH_ALTITUDE,
                                           TOPIC_MISSION_SAFETY_EVENT)
 from drone_interfaces.geo import gps_distance_m, gps_to_local
 from drone_interfaces.gz_spawn import find_world_name, spawn_model
@@ -90,7 +92,8 @@ MONITORED_NODES = {
 }
 
 AIRBORNE_MISSION_STATES = {"PREFLIGHT", "TAKEOFF", "GOTO_WAYPOINT", "ARUCO_LAND",
-                            "WAIT_ON_GROUND", "INTER_TAKEOFF", "RETURN_HOME", "HOME_LAND"}
+                            "WAIT_ON_GROUND", "INTER_TAKEOFF", "RETURN_HOME", "HOME_LAND",
+                            "PX4_FAILSAFE"}
 
 
 # ── Data models ───────────────────────────────────
@@ -121,6 +124,16 @@ class SetHomeRequest(BaseModel):
 
 class ModeRequest(BaseModel):
     mode: str  # "sim" | "hardware"
+
+
+class GeofencePoint(BaseModel):
+    lat: float
+    lon: float
+
+
+class GeofenceRequest(BaseModel):
+    vertices: List[GeofencePoint]
+    action: str = "return"  # QGC-style breach action: warn | hold | return | land
 
 
 class DroneProfileRequest(BaseModel):
@@ -157,15 +170,54 @@ def _route_distance_m(home_lat, home_lon, waypoints: List[Waypoint]) -> float:
     return total
 
 
+# ── Geofence (QGC-style) ──────────────────────────
+# The fence lives in PX4 itself (uploaded like QGC does, as
+# NAV_FENCE_POLYGON_VERTEX_INCLUSION mission items + GF_ACTION), so breach
+# enforcement works even if MAVROS/backend/website all die mid-flight.
+GF_ACTION_CODES = {"warn": 1, "hold": 2, "return": 3, "land": 5}  # PX4 GF_ACTION values
+NAV_FENCE_POLYGON_VERTEX_INCLUSION = 5001  # MAV_CMD id, same item type QGC uploads
+
+
+def point_in_polygon(lat: float, lon: float, vertices) -> bool:
+    """Ray-casting on raw lat/lon degrees — accurate at mission scale
+    (hundreds of metres), where treating the earth as flat is fine."""
+    inside = False
+    n = len(vertices)
+    for i in range(n):
+        la1, lo1 = vertices[i]["lat"], vertices[i]["lon"]
+        la2, lo2 = vertices[(i + 1) % n]["lat"], vertices[(i + 1) % n]["lon"]
+        if (la1 > lat) != (la2 > lat):
+            if lon < (lo2 - lo1) * (lat - la1) / (la2 - la1) + lo1:
+                inside = not inside
+    return inside
+
+
 # ── Existing + extended endpoints ─────────────────
 @app.post("/mission/upload")
 def upload(mission: MissionUpload):
-    _require_all_clear()
-
+    # Validate the INCOMING waypoints against the geofence BEFORE the gate:
+    # _require_all_clear()'s geofence_valid looks at the PREVIOUSLY stored
+    # waypoints, so (a) a fence-violating payload must be rejected here by
+    # name, and (b) a bad earlier upload must never block replacing it with
+    # a good one (found live 2026-07-12: the gate rejected a valid upload
+    # because the *prior* mission's waypoint was outside the fence).
+    fence = db.get_config("geofence")
+    fence_verts = (fence or {}).get("vertices") or []
     for w in mission.waypoints:
+        if fence_verts and not point_in_polygon(w.lat, w.lon, fence_verts):
+            raise HTTPException(400, f"Waypoint {w.label} ({w.lat:.6f},{w.lon:.6f}) "
+                                      "is outside the geofence — rejected.")
         if w.alt > ABORT_ALTITUDE_M:
             raise HTTPException(400, f"Waypoint {w.label} altitude {w.alt}m exceeds "
                                       f"ABORT_ALTITUDE_M={ABORT_ALTITUDE_M}m — rejected, not clamped.")
+
+    # The incoming payload is now known-good — replace the stored waypoints
+    # before gating so geofence_valid judges THIS mission, not the last one.
+    if ros_node:
+        ros_node.uploaded_waypoints = [
+            {"lat": w.lat, "lon": w.lon, "alt": w.alt, "label": w.label,
+             "marker_id": w.marker_id} for w in mission.waypoints]
+    _require_all_clear()
 
     if ros_node and ros_node.home_lat is not None:
         route_m = _route_distance_m(ros_node.home_lat, ros_node.home_lon, mission.waypoints)
@@ -178,10 +230,7 @@ def upload(mission: MissionUpload):
                          f"range ({est['range_m']:.0f}m) for the configured drone profile.")
 
     if ros_node:
-        data = [{"lat": w.lat, "lon": w.lon, "alt": w.alt, "label": w.label,
-                 "marker_id": w.marker_id} for w in mission.waypoints]
-        ros_node.uploaded_waypoints = data
-        msg = String(); msg.data = json.dumps(data)
+        msg = String(); msg.data = json.dumps(ros_node.uploaded_waypoints)
         ros_node.waypoints_pub.publish(msg)
         if mission.speed_ms:
             ros_node.set_max_speed(mission.speed_ms)
@@ -342,6 +391,59 @@ def get_home():
     if home is None:
         return {"lat": None, "lon": None, "synced_at": None}
     return home
+
+
+# ── Geofence endpoints (QGC-style polygon fence) ───────────────────────────
+@app.get("/geofence")
+def get_geofence():
+    fence = db.get_config("geofence") or {}
+    return {
+        "vertices": fence.get("vertices", []),
+        "action": fence.get("action"),
+        "set_at": fence.get("set_at"),
+        "pushed_to_px4": bool(ros_node and ros_node.geofence_push_confirmed
+                              and fence.get("vertices")),
+    }
+
+
+@app.post("/geofence")
+def set_geofence(req: GeofenceRequest):
+    # Deliberately NOT gated by _require_all_clear: drawing a fence is safety
+    # config, and must be settable before the stack is fully up (same policy
+    # as /system/set-home).
+    if len(req.vertices) < 3:
+        raise HTTPException(400, "A geofence polygon needs at least 3 vertices")
+    if req.action not in GF_ACTION_CODES:
+        raise HTTPException(400, f"action must be one of {sorted(GF_ACTION_CODES)}")
+    for v in req.vertices:
+        if not (-90.0 <= v.lat <= 90.0 and -180.0 <= v.lon <= 180.0):
+            raise HTTPException(400, f"vertex out of range: {v.lat},{v.lon}")
+    verts = [{"lat": v.lat, "lon": v.lon} for v in req.vertices]
+    # Home must be INSIDE the fence — a "return" breach action with home
+    # outside would command the drone to fly out through its own fence.
+    if ros_node and ros_node.home_lat is not None and \
+            not point_in_polygon(ros_node.home_lat, ros_node.home_lon, verts):
+        raise HTTPException(400, "Fence must contain the home position")
+    db.set_config("geofence", {"vertices": verts, "action": req.action,
+                               "set_at": db._now()})
+    pushed = ros_node.push_geofence_to_px4(verts, req.action) if ros_node else False
+    if ros_node:
+        # If the push didn't land (PX4 not up yet), the retry timer re-pushes
+        # on the next MAVROS connect — the fence is never silently dropped.
+        ros_node.geofence_push_confirmed = pushed
+    return {"status": "ok", "vertex_count": len(verts),
+            "action": req.action, "pushed_to_px4": pushed}
+
+
+@app.delete("/geofence")
+def clear_geofence():
+    db.set_config("geofence", None)
+    cleared = False
+    if ros_node:
+        cleared = ros_node.clear_geofence_on_px4()
+        ros_node._set_mavros_param("GF_ACTION", integer=0)
+        ros_node.geofence_push_confirmed = True  # nothing left to re-push
+    return {"status": "ok", "cleared_on_px4": cleared}
 
 
 # ── Feature 4: sim/hardware toggle ────────────────────────────────────────
@@ -511,6 +613,9 @@ class BridgeNode(Node):
         # standard ROS2 parameter service works reliably (verified live,
         # including a real arm succeeding once NAV_DLL_ACT was set this way).
         self.param_set_client = self.create_client(SetParameters, "/mavros/param/set_parameters")
+        # Geofence upload — same waypoint-protocol services QGC uses for fences
+        self.geofence_push_client = self.create_client(WaypointPush, "/mavros/geofence/push")
+        self.geofence_clear_client = self.create_client(WaypointClear, "/mavros/geofence/clear")
 
         # ── Internal state ─────────────────────────
         self.mission_state = "IDLE"
@@ -524,6 +629,8 @@ class BridgeNode(Node):
         self.mavros_connected = False
         self.nav_dll_act_confirmed = False
         self._nav_dll_act_timer = None
+        self.geofence_push_confirmed = False
+        self._geofence_timer = None
         self.alt_abort_triggered = False
         self.home_lat = self.home_lon = None
 
@@ -609,6 +716,12 @@ class BridgeNode(Node):
             self.nav_dll_act_confirmed = False
             if self._nav_dll_act_timer is None:
                 self._nav_dll_act_timer = self.create_timer(3.0, self._disable_gcs_link_failsafe)
+            # A (re)connect may be a fresh PX4 process with no fence loaded —
+            # re-push the stored fence until confirmed (same retry pattern as
+            # the NAV_DLL_ACT timer above).
+            self.geofence_push_confirmed = False
+            if self._geofence_timer is None:
+                self._geofence_timer = self.create_timer(3.0, self._repush_geofence)
         elif not msg.connected:
             # Reconnect later may land on a fresh PX4 process (param not
             # guaranteed persisted) — re-arm the retry loop next connect.
@@ -773,6 +886,16 @@ class BridgeNode(Node):
         return gps_distance_m(self.home_lat, self.home_lon, synced["lat"], synced["lon"]) > HOME_MISMATCH_THRESHOLD_M
 
     def _geofence_valid(self) -> bool:
+        fence = db.get_config("geofence")
+        verts = (fence or {}).get("vertices") or []
+        if verts:
+            # Operator-drawn fence: home and every uploaded waypoint must be inside.
+            if self.home_lat is not None and \
+                    not point_in_polygon(self.home_lat, self.home_lon, verts):
+                return False
+            return all(point_in_polygon(wp["lat"], wp["lon"], verts)
+                       for wp in self.uploaded_waypoints)
+        # No fence drawn — fall back to the original crude sanity radius.
         if self.home_lat is None or not self.uploaded_waypoints:
             return True
         for wp in self.uploaded_waypoints:
@@ -848,6 +971,93 @@ class BridgeNode(Node):
         if self.current_mission_id is not None:
             db.log_travel_point(self.current_mission_id, self.current_lat, self.current_lon,
                                  self.altitude, self.heading)
+
+    # ── Geofence: push the fence into PX4 itself (QGC-style) ─────────────
+    def _build_fence_request(self, vertices):
+        req = WaypointPush.Request()
+        req.start_index = 0
+        for v in vertices:
+            wp = MavWaypoint()
+            wp.frame = 3  # GLOBAL_RELATIVE_ALT — the frame QGC uploads fence points in
+            wp.command = NAV_FENCE_POLYGON_VERTEX_INCLUSION
+            wp.is_current = False
+            wp.autocontinue = True
+            wp.param1 = float(len(vertices))  # vertex count of this polygon
+            wp.x_lat, wp.y_long, wp.z_alt = float(v["lat"]), float(v["lon"]), 0.0
+            req.waypoints.append(wp)
+        return req
+
+    def push_geofence_to_px4(self, vertices, action, timeout_s: float = 5.0) -> bool:
+        """Blocking push, called from the FastAPI thread — rclpy spins on the
+        main thread, so waiting on the future here doesn't deadlock."""
+        if not self.geofence_push_client.service_is_ready():
+            return False
+        future = self.geofence_push_client.call_async(self._build_fence_request(vertices))
+        done = threading.Event()
+        future.add_done_callback(lambda _f: done.set())
+        if not done.wait(timeout_s):
+            return False
+        try:
+            ok = bool(future.result().success)
+        except Exception:
+            ok = False
+        if ok and vertices:
+            self._set_mavros_param("GF_ACTION", integer=GF_ACTION_CODES[action])
+            # Cap PX4's RTL climb at the project's own RTH altitude: PX4's
+            # default RTL return altitude is far above ABORT_ALTITUDE_M
+            # (10m), so a breach-triggered RTL would trip the backend's
+            # altitude abort mid-return (observed live 2026-07-12).
+            self._set_mavros_param("RTL_RETURN_ALT", real=float(RTH_ALTITUDE))
+            self.geofence_push_confirmed = True
+            self.get_logger().info(
+                f"Geofence pushed to PX4: {len(vertices)} vertices, breach action '{action}'")
+        return ok
+
+    def clear_geofence_on_px4(self, timeout_s: float = 5.0) -> bool:
+        """Wipe the FCU-side fence via /mavros/geofence/clear (the dedicated
+        clear service — an empty WaypointPush is not a valid wipe)."""
+        if not self.geofence_clear_client.service_is_ready():
+            return False
+        future = self.geofence_clear_client.call_async(WaypointClear.Request())
+        done = threading.Event()
+        future.add_done_callback(lambda _f: done.set())
+        if not done.wait(timeout_s):
+            return False
+        try:
+            return bool(future.result().success)
+        except Exception:
+            return False
+
+    def _repush_geofence(self):
+        """Retry timer: the stored fence must survive a PX4/MAVROS restart,
+        so keep re-pushing after each connect until PX4 confirms it. Runs
+        async (no blocking wait) because this executes on the rclpy thread."""
+        if self.geofence_push_confirmed or not self.mavros_connected:
+            return
+        fence = db.get_config("geofence")
+        verts = (fence or {}).get("vertices") or []
+        if not verts:
+            self.geofence_push_confirmed = True  # nothing to push
+            return
+        if not self.geofence_push_client.service_is_ready():
+            return
+        future = self.geofence_push_client.call_async(self._build_fence_request(verts))
+
+        def _on_result(f):
+            try:
+                ok = bool(f.result().success)
+            except Exception:
+                ok = False
+            if ok:
+                self._set_mavros_param(
+                    "GF_ACTION",
+                    integer=GF_ACTION_CODES.get(fence.get("action", "return"), 3))
+                self._set_mavros_param("RTL_RETURN_ALT", real=float(RTH_ALTITUDE))
+                self.geofence_push_confirmed = True
+                self.get_logger().info(
+                    f"Geofence re-pushed to PX4 after (re)connect ({len(verts)} vertices)")
+
+        future.add_done_callback(_on_result)
 
     # ── Feature 5 (section 6): mission-level max speed via MAVROS ────────
     def set_max_speed(self, speed_ms: float):

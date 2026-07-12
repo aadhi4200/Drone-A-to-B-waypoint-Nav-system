@@ -21,6 +21,12 @@ interface MapPaneProps {
   directPath: LatLng[];
   avoidanceActive: boolean;
   emergencyLandingActive: boolean;
+  // QGC-style geofence: committed polygon, in-progress draft, and handlers
+  geofence?: LatLng[];
+  fenceDraft?: LatLng[];
+  onFenceVertex?: (loc: LatLng) => void;
+  onFinishFence?: () => void;
+  onClearFence?: () => void;
 }
 
 // Coordinate outline calculations mapping helper
@@ -66,10 +72,15 @@ export default function MapPane({
   plannedPath,
   directPath,
   avoidanceActive,
-  emergencyLandingActive
+  emergencyLandingActive,
+  geofence = [],
+  fenceDraft = [],
+  onFenceVertex,
+  onFinishFence,
+  onClearFence
 }: MapPaneProps) {
   const [activeTab, setActiveTab ] = useState<'simulation' | 'leaflet'>('leaflet');
-  const [clickMode, setClickMode] = useState<'start' | 'dest'>('dest');
+  const [clickMode, setClickMode] = useState<'start' | 'dest' | 'fence'>('dest');
   const [is3DMode, setIs3DMode] = useState(true);
 
   // Handle 3D mode toggling
@@ -193,6 +204,11 @@ export default function MapPane({
     onAddWaypointRef.current = onAddWaypoint;
   }, [onAddWaypoint]);
 
+  const onFenceVertexRef = useRef(onFenceVertex);
+  useEffect(() => {
+    onFenceVertexRef.current = onFenceVertex;
+  }, [onFenceVertex]);
+
   const [mapLoaded, setMapLoaded] = useState(false);
 
   // MapLibre Map Initialization
@@ -219,7 +235,9 @@ export default function MapPane({
         lat: Math.round(lat * 1000000) / 1000000,
         lng: Math.round(lng * 1000000) / 1000000
       };
-      if (clickModeRef.current === 'start') {
+      if (clickModeRef.current === 'fence') {
+        onFenceVertexRef.current?.(roundedCoord);
+      } else if (clickModeRef.current === 'start') {
         onSetStartLoc(roundedCoord);
       } else {
         onSetDestLoc(roundedCoord);
@@ -277,6 +295,41 @@ export default function MapPane({
           'line-color': '#22d3ee',
           'line-width': 3.5
         }
+      });
+
+      // QGC-style geofence polygon: amber fill + solid outline for the
+      // committed fence, dashed line + vertex dots while drawing a draft.
+      map.addSource('geofence', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
+      map.addLayer({
+        id: 'geofence-fill',
+        type: 'fill',
+        source: 'geofence',
+        paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.07 }
+      });
+      map.addLayer({
+        id: 'geofence-outline',
+        type: 'line',
+        source: 'geofence',
+        paint: { 'line-color': '#f59e0b', 'line-width': 2.5 }
+      });
+      map.addSource('geofence-draft', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
+      map.addLayer({
+        id: 'geofence-draft-line',
+        type: 'line',
+        source: 'geofence-draft',
+        paint: { 'line-color': '#f59e0b', 'line-width': 2, 'line-dasharray': [2, 2] }
+      });
+      map.addLayer({
+        id: 'geofence-draft-points',
+        type: 'circle',
+        source: 'geofence-draft',
+        paint: { 'circle-radius': 4.5, 'circle-color': '#f59e0b', 'circle-stroke-color': '#0f172a', 'circle-stroke-width': 1.5 }
       });
 
       map.addSource('obstacles-path', {
@@ -546,6 +599,36 @@ export default function MapPane({
       });
     }
 
+    // Sync geofence polygon + draft (QGC-style)
+    const geofenceSource = map.getSource('geofence') as maplibregl.GeoJSONSource;
+    if (geofenceSource) {
+      geofenceSource.setData({
+        type: 'FeatureCollection',
+        features: geofence.length >= 3 ? [{
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'Polygon',
+            coordinates: [[...geofence.map(p => [p.lng, p.lat]), [geofence[0].lng, geofence[0].lat]]]
+          }
+        }] : []
+      });
+    }
+    const fenceDraftSource = map.getSource('geofence-draft') as maplibregl.GeoJSONSource;
+    if (fenceDraftSource) {
+      const draftFeatures: any[] = fenceDraft.map(p => ({
+        type: 'Feature', properties: {},
+        geometry: { type: 'Point', coordinates: [p.lng, p.lat] }
+      }));
+      if (fenceDraft.length >= 2) {
+        draftFeatures.push({
+          type: 'Feature', properties: {},
+          geometry: { type: 'LineString', coordinates: fenceDraft.map(p => [p.lng, p.lat]) }
+        });
+      }
+      fenceDraftSource.setData({ type: 'FeatureCollection', features: draftFeatures });
+    }
+
     // Sync obstacles hazard circles (including dynamic passing parameters for 3D heights)
     const obstaclesSource = map.getSource('obstacles-path') as maplibregl.GeoJSONSource;
     if (obstaclesSource) {
@@ -588,7 +671,7 @@ export default function MapPane({
       obstacleMarkersRef.current.push(labelMarker);
     });
 
-  }, [directPath, plannedPath, traveledPath, obstacles, mapLoaded]);
+  }, [directPath, plannedPath, traveledPath, obstacles, geofence, fenceDraft, mapLoaded]);
 
   // Sync mission-stop (B/C/D...) markers — Feature 1/2
   useEffect(() => {
@@ -651,7 +734,9 @@ export default function MapPane({
       lng: Math.round(clickedLng * 1000000) / 1000000
     };
 
-    if (clickMode === 'start') {
+    if (clickMode === 'fence') {
+      onFenceVertex?.(roundedCoord);
+    } else if (clickMode === 'start') {
       onSetStartLoc(roundedCoord);
     } else {
       onSetDestLoc(roundedCoord);
@@ -696,7 +781,53 @@ export default function MapPane({
             >
               Dest Coords
             </button>
+            <button
+              id="btn-click-fence"
+              onClick={() => setClickMode('fence')}
+              className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all cursor-pointer ${
+                clickMode === 'fence'
+                  ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
+                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+              }`}
+            >
+              Fence
+            </button>
           </div>
+
+          {/* Fence drawing controls — only while in fence mode */}
+          {clickMode === 'fence' && (
+            <div className="flex items-center space-x-1.5 bg-slate-950/60 p-0.5 border border-amber-500/30 rounded-lg">
+              <span className="px-1.5 text-[10px] font-mono text-amber-400/80">
+                {fenceDraft.length > 0
+                  ? `${fenceDraft.length} vertex${fenceDraft.length === 1 ? '' : 'es'}`
+                  : geofence.length >= 3 ? 'fence active' : 'click map to draw'}
+              </span>
+              <button
+                id="btn-fence-finish"
+                onClick={() => onFinishFence?.()}
+                disabled={fenceDraft.length < 3}
+                className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all ${
+                  fenceDraft.length >= 3
+                    ? 'bg-amber-500/25 text-amber-300 font-bold border border-amber-500/40 cursor-pointer'
+                    : 'text-slate-600 border border-transparent cursor-not-allowed'
+                }`}
+              >
+                Set Fence
+              </button>
+              <button
+                id="btn-fence-clear"
+                onClick={() => onClearFence?.()}
+                disabled={fenceDraft.length === 0 && geofence.length === 0}
+                className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all ${
+                  fenceDraft.length > 0 || geofence.length > 0
+                    ? 'text-rose-400 hover:bg-rose-500/15 border border-transparent cursor-pointer'
+                    : 'text-slate-600 border border-transparent cursor-not-allowed'
+                }`}
+              >
+                Clear
+              </button>
+            </div>
+          )}
 
           {/* Engine Selection Tabs */}
           <div className="flex bg-slate-950/60 p-1 border border-white/10 rounded-lg">

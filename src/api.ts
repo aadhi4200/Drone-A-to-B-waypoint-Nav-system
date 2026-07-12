@@ -102,6 +102,31 @@ export async function getTravelLog(missionId: number) {
   return get(`/missions/${missionId}/travel-log`);
 }
 
+// ── Geofence (QGC-style polygon fence, enforced by PX4 itself) ───────────
+export interface GeofenceVertex { lat: number; lon: number; }
+export interface GeofenceState {
+  vertices: GeofenceVertex[];
+  action: string | null;
+  set_at: string | null;
+  pushed_to_px4: boolean;
+}
+export async function getGeofence(): Promise<GeofenceState> {
+  return get('/geofence');
+}
+export async function setGeofence(vertices: GeofenceVertex[], action: string = 'return') {
+  return post('/geofence', { vertices, action }) as Promise<{
+    status: string; vertex_count: number; action: string; pushed_to_px4: boolean;
+  }>;
+}
+export async function clearGeofence() {
+  const res = await fetch(`${API_BASE}/geofence`, { method: 'DELETE' });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => res.statusText);
+    throw new ApiError(res.status, (detail as any)?.detail ?? detail);
+  }
+  return res.json() as Promise<{ status: string; cleared_on_px4: boolean }>;
+}
+
 export async function startMission() {
   return post('/mission/start');
 }

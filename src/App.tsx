@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, generateMarker, setHome, getHome, getMode, getTravelLog, ApiError } from './api';
+import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, generateMarker, setHome, getHome, getMode, getTravelLog, getGeofence, setGeofence, clearGeofence, ApiError } from './api';
 // NOTE: We import our api functions but rename the local startMission
 // to avoid conflict with the imported one
 import { startMission as ros2Start } from './api';
@@ -115,6 +115,48 @@ export default function App() {
   // ── Sim/hardware mode (Feature 4) ───────────────────
   const [mode, setModeState] = useState<'sim' | 'hardware'>('sim');
   useEffect(() => { getMode().then(({ mode }) => setModeState(mode)).catch(() => {}); }, []);
+
+  // ── Geofence (QGC-style): committed polygon + in-progress draft ─────
+  const [geofence, setGeofenceState] = useState<LatLng[]>([]);
+  const [fenceDraft, setFenceDraft] = useState<LatLng[]>([]);
+  useEffect(() => {
+    getGeofence()
+      .then(g => {
+        if (g?.vertices?.length) {
+          setGeofenceState(g.vertices.map(v => ({ lat: v.lat, lng: v.lon })));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleFenceVertex = (loc: LatLng) => setFenceDraft(prev => [...prev, loc]);
+
+  const handleFinishFence = async () => {
+    if (fenceDraft.length < 3) return;
+    try {
+      const res = await setGeofence(fenceDraft.map(p => ({ lat: p.lat, lon: p.lng })), 'return');
+      setGeofenceState(fenceDraft);
+      setFenceDraft([]);
+      addNewLogEntry(flightState,
+        `GEOFENCE: set (${res.vertex_count} vertices, breach action RETURN)` +
+        (res.pushed_to_px4 ? ' — enforced by PX4.' : ' — will push to PX4 on connect.'));
+    } catch (e) {
+      const msg = e instanceof ApiError ? String(e.detail) : 'backend unreachable';
+      addNewLogEntry(flightState, `GEOFENCE: rejected — ${msg}`);
+    }
+  };
+
+  const handleClearFence = async () => {
+    setFenceDraft([]);
+    if (geofence.length === 0) return;
+    try {
+      await clearGeofence();
+      setGeofenceState([]);
+      addNewLogEntry(flightState, 'GEOFENCE: cleared (PX4 fence wiped, breach action off).');
+    } catch {
+      addNewLogEntry(flightState, 'GEOFENCE: clear failed — backend unreachable, fence unchanged.');
+    }
+  };
 
   // ── Live WebSocket push: node/preflight status, IMU, position ───────
   const { connected: wsConnected, nodeStatus, imu, position: wsPosition, missionState: wsMissionState } = useSystemStatusSocket();
@@ -776,6 +818,11 @@ export default function App() {
                 onAddWaypoint={addWaypointFromMap}
                 waypoints={waypoints}
                 traveledPath={traveledPath}
+                geofence={geofence}
+                fenceDraft={fenceDraft}
+                onFenceVertex={handleFenceVertex}
+                onFinishFence={handleFinishFence}
+                onClearFence={handleClearFence}
                 plannedPath={plannedPath}
                 directPath={directPath}
                 avoidanceActive={sensors.obstacleAvoidanceActive}
