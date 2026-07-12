@@ -29,24 +29,24 @@ export function TelemetryInsights({ logs }: TelemetryInsightsProps) {
   };
 
   return (
-    <div className="bg-white backdrop-blur-xl border border-black/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden h-[400px]">
-      <div className="border-b border-black/10 pb-3 mb-4 flex justify-between items-center">
+    <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden h-[400px]">
+      <div className="border-b border-white/10 pb-3 mb-4 flex justify-between items-center">
         <div className="flex items-center space-x-2">
-          <Cpu className="w-5 h-5 text-[#0071e3] animate-pulse" />
-          <h4 className="font-semibold text-[#1d1d1f] tracking-wide text-sm uppercase font-display">Telemetry Insights</h4>
+          <Cpu className="w-5 h-5 text-[#ffd02c] animate-pulse" />
+          <h4 className="font-semibold text-white tracking-wide text-sm uppercase font-display">Telemetry Insights</h4>
         </div>
-        <span className="text-[10px] font-mono font-bold text-[#86868b]">REALTIME (1Hz)</span>
+        <span className="text-[10px] font-mono font-bold text-[#7c7c84]">REALTIME (1Hz)</span>
       </div>
 
       {/* Battery Capacity Metric SVG */}
       <div className="space-y-2 mb-5">
         <div className="flex justify-between items-center">
-          <span className="text-[11px] font-mono font-bold text-[#424245]">BATTERY SLOPE METER</span>
-          <span className="text-[11px] font-mono text-[#0071e3] font-bold">
+          <span className="text-[11px] font-mono font-bold text-[#d1d1d6]">BATTERY SLOPE METER</span>
+          <span className="text-[11px] font-mono text-[#ffd02c] font-bold">
             {logs.length > 0 ? `${logs[logs.length - 1].batteryPercentage.toFixed(1)}%` : '0.0%'}
           </span>
         </div>
-        <div className="h-28 bg-white/80 border border-black/10 rounded-xl overflow-hidden relative p-1.5 flex flex-col justify-end backdrop-blur-sm">
+        <div className="h-28 bg-[#0a0a0c]/90 border border-white/10 rounded-xl overflow-hidden relative p-1.5 flex flex-col justify-end backdrop-blur-sm">
           {chartData.length > 1 ? (
             <svg className="w-full h-full" viewBox="0 0 300 100" preserveAspectRatio="none">
               <defs>
@@ -78,7 +78,7 @@ export function TelemetryInsights({ logs }: TelemetryInsightsProps) {
               />
             </svg>
           ) : (
-            <div className="text-[11px] text-[#86868b] font-mono text-center mb-6">Awaiting sensor data streams...</div>
+            <div className="text-[11px] text-[#7c7c84] font-mono text-center mb-6">Awaiting sensor data streams...</div>
           )}
         </div>
       </div>
@@ -86,12 +86,12 @@ export function TelemetryInsights({ logs }: TelemetryInsightsProps) {
       {/* Signal Strength DBm Metric SVG */}
       <div className="space-y-2">
         <div className="flex justify-between items-center">
-          <span className="text-[11px] font-mono font-bold text-[#424245]">LINK RF NOISE FLOOR (dBM)</span>
-          <span className="text-[11px] font-mono text-[#0071e3] font-bold">
+          <span className="text-[11px] font-mono font-bold text-[#d1d1d6]">LINK RF NOISE FLOOR (dBM)</span>
+          <span className="text-[11px] font-mono text-[#ffd02c] font-bold">
             {logs.length > 0 ? `${logs[logs.length - 1].signalStrengthDbm} dBm` : '-0 dBm'}
           </span>
         </div>
-        <div className="h-28 bg-white/80 border border-black/10 rounded-xl overflow-hidden relative p-1.5 flex flex-col justify-end backdrop-blur-sm">
+        <div className="h-28 bg-[#0a0a0c]/90 border border-white/10 rounded-xl overflow-hidden relative p-1.5 flex flex-col justify-end backdrop-blur-sm">
           {chartData.length > 1 ? (
             <svg className="w-full h-full" viewBox="0 0 300 100" preserveAspectRatio="none">
               <defs>
@@ -123,12 +123,12 @@ export function TelemetryInsights({ logs }: TelemetryInsightsProps) {
               />
             </svg>
           ) : (
-            <div className="text-[11px] text-[#86868b] font-mono text-center mb-6">Awaiting sensor data streams...</div>
+            <div className="text-[11px] text-[#7c7c84] font-mono text-center mb-6">Awaiting sensor data streams...</div>
           )}
         </div>
       </div>
 
-      <div className="mt-4 pt-3 border-t border-black/10 text-[10px] font-mono text-[#86868b] leading-normal">
+      <div className="mt-4 pt-3 border-t border-white/10 text-[10px] font-mono text-[#7c7c84] leading-normal">
         Dashboard maps structural coordinates natively. System is designed to feed Spring Boot endpoints at 1Hz frequency interval rate.
       </div>
     </div>
@@ -177,37 +177,37 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
   });
 
   return (
-    <div className="bg-white backdrop-blur-xl border border-black/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col justify-between h-[400px] relative">
+    <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col justify-between h-[400px] relative">
       {/* Console Header */}
-      <div className="bg-white/80 px-4 py-3 border-b border-black/10 flex flex-wrap items-center justify-between gap-3 backdrop-blur-md">
+      <div className="bg-[#0a0a0c]/90 px-4 py-3 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 backdrop-blur-md">
         <div className="flex items-center space-x-2">
-          <Terminal className="w-4 h-4 text-[#0071e3]" />
-          <h4 className="font-semibold text-[#1d1d1f] tracking-wide text-xs uppercase font-mono">Telemetry Log Stream</h4>
+          <Terminal className="w-4 h-4 text-[#ffd02c]" />
+          <h4 className="font-semibold text-white tracking-wide text-xs uppercase font-mono">Telemetry Log Stream</h4>
           <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
         </div>
 
         <div className="flex items-center space-x-2">
           {/* Search Input */}
           <div className="relative">
-            <Search className="absolute left-2 top-2 w-3 h-3 text-[#6e6e73]" />
+            <Search className="absolute left-2 top-2 w-3 h-3 text-[#9a9aa2]" />
             <input
               id="logger-search"
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search..."
-              className="bg-[#f5f5f7] border border-black/10 rounded-lg px-2 py-1 text-xs text-[#1d1d1f] pl-7 w-28 focus:outline-none focus:border-[#0071e3]/40 text-[10px] font-mono h-7 transition-all"
+              className="bg-[#1c1c20] border border-white/10 rounded-lg px-2 py-1 text-xs text-white pl-7 w-28 focus:outline-none focus:border-[#ffd02c]/40 text-[10px] font-mono h-7 transition-all"
             />
           </div>
 
           {/* Filter */}
-          <div className="relative flex items-center bg-[#f5f5f7] border border-black/10 rounded-lg px-2 text-[10px] text-[#6e6e73] font-mono h-7">
-            <Filter className="w-3 h-3 text-[#86868b] mr-1" />
+          <div className="relative flex items-center bg-[#1c1c20] border border-white/10 rounded-lg px-2 text-[10px] text-[#9a9aa2] font-mono h-7">
+            <Filter className="w-3 h-3 text-[#7c7c84] mr-1" />
             <select
               id="logger-state-filter"
               value={stateFilter}
               onChange={(e) => setStateFilter(e.target.value as any)}
-              className="bg-transparent border-none text-[#424245] focus:outline-[#06b6d4] py-1 cursor-pointer outline-none transition-all leading-none text-[10px] font-mono focus:bg-white"
+              className="bg-transparent border-none text-[#d1d1d6] focus:outline-[#06b6d4] py-1 cursor-pointer outline-none transition-all leading-none text-[10px] font-mono focus:bg-[#141417]"
             >
               <option value="ALL">STATE: ALL</option>
               <option value={FlightState.IDLE}>IDLE</option>
@@ -223,7 +223,7 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
             id="btn-clear-logs"
             onClick={onClearLogs}
             title="Clear active telemetry queue"
-            className="px-2.5 rounded-lg bg-red-950/35 text-red-600 hover:bg-red-550 hover:text-[#1d1d1f] border border-red-500/25 transition-all font-mono text-[10px] flex items-center h-7 cursor-pointer"
+            className="px-2.5 rounded-lg bg-red-950/35 text-red-400 hover:bg-red-550 hover:text-white border border-red-500/25 transition-all font-mono text-[10px] flex items-center h-7 cursor-pointer"
           >
             <Trash2 className="w-3 h-3 mr-1" />
             Reset
@@ -233,7 +233,7 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
           <button
             id="btn-export-logs"
             onClick={exportToJson}
-            className="px-3 rounded-lg bg-[#0071e3] hover:bg-[#0077ed] text-white font-sans font-bold text-[10.5px] flex items-center transition-all h-7 cursor-pointer shadow-md shadow-[#0071e3]/20"
+            className="px-3 rounded-lg bg-[#ffd02c] hover:bg-[#ffdd55] text-black font-sans font-bold text-[10.5px] flex items-center transition-all h-7 cursor-pointer shadow-md shadow-black/40"
           >
             <Download className="w-3.5 h-3.5 mr-1" />
             Export JSON
@@ -242,38 +242,38 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
       </div>
 
       {/* Console logs box */}
-      <div ref={logContainerRef} className="flex-1 bg-white/80 p-4 font-mono text-[10.5px] overflow-auto select-text leading-relaxed font-semibold backdrop-blur-sm">
+      <div ref={logContainerRef} className="flex-1 bg-[#0a0a0c]/90 p-4 font-mono text-[10.5px] overflow-auto select-text leading-relaxed font-semibold backdrop-blur-sm">
         {filteredLogs.length > 0 ? (
           <div className="space-y-1">
             {filteredLogs.map((log, index) => (
-              <div key={log.id + '-' + index} className="border-b border-black/10 pb-1 hover:bg-black/5 p-1 rounded transition-colors">
-                <span className="text-[#86868b] select-none mr-2">[{log.timestamp.split('T')[1].slice(0, 8)}]</span>
-                <span className="text-[#0071e3] font-bold select-none mr-1">INGEST:</span>
-                <span className="text-[#1d1d1f]">
-                  ID=<span className="text-amber-600">{log.id}</span> | 
+              <div key={log.id + '-' + index} className="border-b border-white/10 pb-1 hover:bg-white/10 p-1 rounded transition-colors">
+                <span className="text-[#7c7c84] select-none mr-2">[{log.timestamp.split('T')[1].slice(0, 8)}]</span>
+                <span className="text-[#ffd02c] font-bold select-none mr-1">INGEST:</span>
+                <span className="text-white">
+                  ID=<span className="text-amber-400">{log.id}</span> | 
                   ST=<span className={`font-bold ${
-                    log.flightState === FlightState.EMERGENCY_LANDING ? 'text-rose-600' :
-                    log.flightState === FlightState.EN_ROUTE ? 'text-[#0071e3]' :
-                    log.flightState === FlightState.LANDED_SAFE ? 'text-amber-600' : 'text-[#424245]'
+                    log.flightState === FlightState.EMERGENCY_LANDING ? 'text-rose-400' :
+                    log.flightState === FlightState.EN_ROUTE ? 'text-[#ffd02c]' :
+                    log.flightState === FlightState.LANDED_SAFE ? 'text-amber-400' : 'text-[#d1d1d6]'
                   }`}>{log.flightState}</span> | 
-                  POS=[<span className="text-[#0071e3]">{log.latitude.toFixed(6)}</span>, <span className="text-[#0071e3]">{log.longitude.toFixed(6)}</span>] | 
-                  ALT=<span className="text-[#0071e3]">{log.altitudeMeters.toFixed(1)}m</span> | 
+                  POS=[<span className="text-[#ffd02c]">{log.latitude.toFixed(6)}</span>, <span className="text-[#ffd02c]">{log.longitude.toFixed(6)}</span>] | 
+                  ALT=<span className="text-[#ffd02c]">{log.altitudeMeters.toFixed(1)}m</span> | 
                   BAT=<span className="text-emerald-300">{log.batteryPercentage.toFixed(1)}%</span> | 
-                  SIG=<span className="text-[#0071e3]">{log.signalStrengthDbm}dBm</span> | 
-                  CRYPT=<span className={log.encryptionActive ? 'text-emerald-600' : 'text-red-600'}>{log.encryptionActive ? 'TRUE' : 'FALSE'}</span> | 
-                  WND=<span className="text-[#424245]">{log.windSpeedKnots.toFixed(1)}kt</span>
+                  SIG=<span className="text-[#ffd02c]">{log.signalStrengthDbm}dBm</span> | 
+                  CRYPT=<span className={log.encryptionActive ? 'text-emerald-400' : 'text-red-400'}>{log.encryptionActive ? 'TRUE' : 'FALSE'}</span> | 
+                  WND=<span className="text-[#d1d1d6]">{log.windSpeedKnots.toFixed(1)}kt</span>
                   {log.flightDuration && (
                     <> | DUR=<span className="text-yellow-400 font-bold">{log.flightDuration}</span></>
                   )}
                   {log.detail && (
-                    <> | MSG=<span className="text-[#424245] italic">{log.detail}</span></>
+                    <> | MSG=<span className="text-[#d1d1d6] italic">{log.detail}</span></>
                   )}
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-[#86868b] space-y-1">
+          <div className="flex flex-col items-center justify-center h-full text-[#7c7c84] space-y-1">
             <span className="font-bold">SYSTEM ACTIVE - INGESTION BUFFER MONITORING</span>
             <span>Wait for UAV coordinates initialization to trigger logging queues.</span>
           </div>
@@ -281,9 +281,9 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
       </div>
 
       {/* Console footer bar */}
-      <div className="bg-[#f5f5f7] border-t border-black/10 px-4 py-2 flex justify-between items-center text-[10px] text-[#86868b] font-mono backdrop-blur-md">
+      <div className="bg-[#1c1c20] border-t border-white/10 px-4 py-2 flex justify-between items-center text-[10px] text-[#7c7c84] font-mono backdrop-blur-md">
         <span>Active Ingest Buffer: {filteredLogs.length} Records</span>
-        <span className="text-[#6e6e73]">REST schema matches JPA structure directly.</span>
+        <span className="text-[#9a9aa2]">REST schema matches JPA structure directly.</span>
       </div>
     </div>
   );

@@ -2,29 +2,30 @@
 @import "tailwindcss";
 
 @theme {
-  /* Apple-style system font stack (SF Pro on Apple devices), Inter fallback */
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Space Grotesk", sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  /* DJI-controller look (ref: dribbble 21827619) — grotesk pairing;
+     Space Grotesk stands in for the shot's Aktiv Grotesk */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-/* Light (apple.com-style) scrollbars */
+/* Dark scrollbars, DJI-yellow hover */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.14);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 113, 227, 0.4);
+  background: rgba(255, 208, 44, 0.45);
 }
 
 @keyframes scanline {

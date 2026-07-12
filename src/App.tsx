@@ -744,7 +744,7 @@ export default function App() {
 
   // ── Render ───────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f] font-sans selection:bg-[#0071e3] selection:text-white pb-14 relative overflow-hidden">
+    <div className="min-h-screen bg-[#0a0a0c] text-white font-sans selection:bg-[#ffd02c] selection:text-black pb-14 relative overflow-hidden">
 
       {/* Background grid */}
       <div className="absolute inset-0 z-0 opacity-15 pointer-events-none">
@@ -759,31 +759,31 @@ export default function App() {
       </div>
 
       {/* Header */}
-      <header className="border-b border-black/10 bg-white/80 sticky top-0 z-40 backdrop-blur-md">
+      <header className="border-b border-white/10 bg-[#0a0a0c]/90 sticky top-0 z-40 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-[#0071e3] rounded flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(0,113,227,0.4)]">
+            <div className="w-8 h-8 bg-[#ffd02c] rounded flex items-center justify-center font-bold text-black shadow-[0_0_15px_rgba(255,208,44,0.4)]">
               UAV
             </div>
             <div>
-              <h1 className="text-sm font-bold tracking-tight text-[#1d1d1f] uppercase flex items-center">
+              <h1 className="text-sm font-bold tracking-tight text-white uppercase flex items-center">
                 SkyNav Avionics Systems
-                <span className="text-[#0071e3] text-[9px] font-mono ml-2 bg-white px-2 py-0.5 rounded border border-black/10">v4.2.0-STABLE</span>
+                <span className="text-[#ffd02c] text-[9px] font-mono ml-2 bg-[#141417] px-2 py-0.5 rounded border border-white/10">v4.2.0-STABLE</span>
               </h1>
-              <p className="text-[10px] text-[#6e6e73] font-mono">Autonomous Drone Mission Control · LiDAR · ROS2 FastAPI Bridge</p>
+              <p className="text-[10px] text-[#9a9aa2] font-mono">Autonomous Drone Mission Control · LiDAR · ROS2 FastAPI Bridge</p>
             </div>
           </div>
           <div className="flex items-center space-x-2">
             {/* ROS2 connection indicator in header */}
             <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full border flex items-center ${
               ros2Connected
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600'
-                : 'bg-white border-black/10 text-[#6e6e73]'
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                : 'bg-[#141417] border-white/10 text-[#9a9aa2]'
             }`}>
               <span className={`w-1.5 h-1.5 rounded-full mr-2 ${ros2Connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
               {ros2Connected ? 'ROS2 CONNECTED' : 'SIM MODE'}
             </span>
-            <span className="text-[10px] font-mono shrink-0 px-2.5 py-1 bg-white border border-black/10 text-[#0071e3] rounded-full flex items-center">
+            <span className="text-[10px] font-mono shrink-0 px-2.5 py-1 bg-[#141417] border border-white/10 text-[#ffd02c] rounded-full flex items-center">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2 animate-pulse" />
               PORTAL SECURE
             </span>
