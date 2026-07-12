@@ -423,13 +423,46 @@ export default function App() {
     if (wsPosition.lat === 0 && wsPosition.lon === 0) return;
     setDronePos({ lat: wsPosition.lat, lng: wsPosition.lon, heading: wsPosition.heading });
     setSensors(prev => ({ ...prev, barometerAltitudeM: wsPosition.altitude }));
-    if (flightState === FlightState.EN_ROUTE) {
-      setTraveledPath(prev => {
-        const next = [...prev, { lat: wsPosition.lat, lng: wsPosition.lon }];
-        return next.length > MAX_TRAVELED_POINTS ? next.slice(next.length - MAX_TRAVELED_POINTS) : next;
-      });
-    }
   }, [wsPosition, wsConnected, flightState]);
+
+  // ── Traveled trail (the red line) ──────────────────────────────────
+  // Fed from dronePos itself, not from the WebSocket message, so the line
+  // still draws when the socket is down and REST polling is the position
+  // source. Points are deduped to >=0.5m spacing.
+  const lastTrailPointRef = useRef<LatLng | null>(null);
+  useEffect(() => {
+    if (flightState !== FlightState.EN_ROUTE) return;
+    const last = lastTrailPointRef.current;
+    if (last) {
+      const dLat = (dronePos.lat - last.lat) * 111320;
+      const dLng = (dronePos.lng - last.lng) * 111320 * Math.cos((dronePos.lat * Math.PI) / 180);
+      if (Math.hypot(dLat, dLng) < 0.5) return;
+    }
+    lastTrailPointRef.current = { lat: dronePos.lat, lng: dronePos.lng };
+    setTraveledPath(prev => {
+      const next = [...prev, { lat: dronePos.lat, lng: dronePos.lng }];
+      return next.length > MAX_TRAVELED_POINTS ? next.slice(next.length - MAX_TRAVELED_POINTS) : next;
+    });
+  }, [dronePos, flightState]);
+
+  // ── Auto-ready after a mission ends ────────────────────────────────
+  // Once the drone is on the ground after MISSION_COMPLETE (or an abort),
+  // reset the ROS2 state machine and re-open the Launch button — the
+  // operator shouldn't have to hunt for a reset to fly again. The trail
+  // stays on screen until the next launch clears it.
+  useEffect(() => {
+    if (flightState !== FlightState.LANDED_SAFE && flightState !== FlightState.EMERGENCY_LANDING) return;
+    if (droneStatus !== 'LANDED' && droneStatus !== 'CONNECTED') return;
+    const timer = setTimeout(async () => {
+      try {
+        await resetMission();
+      } catch { /* backend unreachable — local re-arm only */ }
+      lastTrailPointRef.current = null;
+      setFlightState(FlightState.IDLE);
+      addNewLogEntry(FlightState.IDLE, 'Mission closed out — ready to launch the next one.');
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [flightState, droneStatus]);
 
   // ── Trail restore after mid-flight reconnect ────────────────────────
   // If the page loads (or the backend comes back) while a mission is already
