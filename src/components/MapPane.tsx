@@ -351,7 +351,7 @@ export default function MapPane({
         type: 'line',
         source: 'traveled-path',
         paint: {
-          'line-color': '#1EBCBD',
+          'line-color': '#ef4444',
           'line-width': 11,
           'line-blur': 8,
           'line-opacity': 0.35
@@ -362,7 +362,7 @@ export default function MapPane({
         type: 'line',
         source: 'traveled-path',
         paint: {
-          'line-color': '#1EBCBD',
+          'line-color': '#ef4444',
           'line-width': 3.5
         }
       });
@@ -581,8 +581,9 @@ export default function MapPane({
           <div class="absolute -inset-2.5 rounded-full border border-[#1ebcbd]/25"></div>
           <div class="absolute -inset-1 rounded-full border border-[#1ebcbd]/40 animate-ping"></div>
           <div class="relative flex items-center justify-center p-2 rounded-full bg-[#0a1220] border-2 border-[#1ebcbd] shadow-[0_0_15px_rgba(30,188,189,0.6)] text-white font-bold h-10 w-10 origin-center transition-all" style="transform: rotate(${arrowRotationDeg(dronePos)}deg);">
-            <svg class="w-5 h-5 text-[#8ae8e9]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="m12 2-7.5 19 7.5-3 7.5 3-7.5-19Z"/>
+            <div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid #ef4444;"></div>
+            <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <path d="M12 2 L19.5 21 L12 16.6 L4.5 21 Z"/>
             </svg>
           </div>
         </div>
