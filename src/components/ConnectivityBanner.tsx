@@ -27,8 +27,8 @@ function describeReason(reason: string): string {
 export default function ConnectivityBanner({ nodeStatus, wsConnected }: ConnectivityBannerProps) {
   if (!wsConnected) {
     return (
-      <div className="p-3 bg-slate-900/60 border border-white/10 rounded-xl text-slate-400 text-[10.5px] font-mono flex items-center gap-2">
-        <ShieldAlert className="w-4 h-4 shrink-0 text-slate-500" />
+      <div className="p-3 bg-white/60 border border-black/10 rounded-xl text-[#6e6e73] text-[10.5px] font-mono flex items-center gap-2">
+        <ShieldAlert className="w-4 h-4 shrink-0 text-[#86868b]" />
         Dashboard link down — monitoring only, this does not affect the drone. Reconnecting...
       </div>
     );
@@ -36,8 +36,8 @@ export default function ConnectivityBanner({ nodeStatus, wsConnected }: Connecti
 
   if (!nodeStatus) {
     return (
-      <div className="p-3 bg-slate-900/60 border border-white/10 rounded-xl text-slate-400 text-[10.5px] font-mono flex items-center gap-2">
-        <ShieldAlert className="w-4 h-4 shrink-0 text-slate-500 animate-pulse" />
+      <div className="p-3 bg-white/60 border border-black/10 rounded-xl text-[#6e6e73] text-[10.5px] font-mono flex items-center gap-2">
+        <ShieldAlert className="w-4 h-4 shrink-0 text-[#86868b] animate-pulse" />
         Waiting for connectivity status...
       </div>
     );
@@ -45,7 +45,7 @@ export default function ConnectivityBanner({ nodeStatus, wsConnected }: Connecti
 
   if (nodeStatus.all_clear) {
     return (
-      <div className="p-3 bg-emerald-950/20 border border-emerald-600/30 rounded-xl text-emerald-400 text-[10.5px] font-mono flex items-center gap-2 uppercase font-bold">
+      <div className="p-3 bg-emerald-950/20 border border-emerald-600/30 rounded-xl text-emerald-600 text-[10.5px] font-mono flex items-center gap-2 uppercase font-bold">
         <CheckCircle2 className="w-4 h-4 shrink-0" />
         All systems connected — ready to arm/start
       </div>
@@ -53,7 +53,7 @@ export default function ConnectivityBanner({ nodeStatus, wsConnected }: Connecti
   }
 
   return (
-    <div className="p-3 bg-red-950/20 border border-red-600/30 rounded-xl text-red-400 text-[10px] font-mono uppercase font-bold">
+    <div className="p-3 bg-red-950/20 border border-red-600/30 rounded-xl text-red-600 text-[10px] font-mono uppercase font-bold">
       <div className="flex items-center gap-2 mb-1.5">
         <ShieldAlert className="w-4 h-4 shrink-0 animate-pulse" />
         Not ready — mission controls locked

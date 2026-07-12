@@ -49,17 +49,17 @@ export default function DroneProfilePanel({ mode, onModeChange }: DroneProfilePa
   };
 
   return (
-    <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl space-y-3">
+    <div className="bg-white backdrop-blur-xl border border-black/10 rounded-2xl p-4 shadow-2xl space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <Settings2 className="w-4 h-4 text-cyan-400" />
-          <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">Drone Profile & Mode</h3>
+          <Settings2 className="w-4 h-4 text-[#0071e3]" />
+          <h3 className="font-semibold text-[#1d1d1f] tracking-wide text-xs uppercase font-display">Drone Profile & Mode</h3>
         </div>
         <button
           onClick={toggleMode}
           className={`px-3 py-1 rounded-lg text-[10px] font-mono font-bold uppercase cursor-pointer border flex items-center gap-1.5 ${
             mode === 'sim'
-              ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+              ? 'bg-[#0071e3]/10 border-[#0071e3]/30 text-[#0071e3]'
               : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
           }`}
         >
@@ -69,13 +69,13 @@ export default function DroneProfilePanel({ mode, onModeChange }: DroneProfilePa
 
       <div className="grid grid-cols-2 gap-2">
         {FIELDS.map(f => (
-          <label key={f.key} className="text-[9px] font-mono text-slate-400 space-y-0.5">
+          <label key={f.key} className="text-[9px] font-mono text-[#6e6e73] space-y-0.5">
             {f.label}
             <input
               type="number"
               value={profile[f.key] ?? ''}
               onChange={e => handleField(f.key, e.target.value)}
-              className="w-full bg-slate-950/40 border border-white/10 rounded px-2 py-1 text-white text-[11px]"
+              className="w-full bg-white/80 border border-black/10 rounded px-2 py-1 text-[#1d1d1f] text-[11px]"
             />
           </label>
         ))}
@@ -84,23 +84,23 @@ export default function DroneProfilePanel({ mode, onModeChange }: DroneProfilePa
       <button
         onClick={handleSave}
         disabled={saving}
-        className="w-full py-2 rounded-xl text-xs font-bold uppercase bg-cyan-500 text-slate-950 hover:bg-cyan-400 cursor-pointer disabled:opacity-50"
+        className="w-full py-2 rounded-xl text-xs font-bold uppercase bg-[#0071e3] text-white hover:bg-[#0077ed] cursor-pointer disabled:opacity-50"
       >
         {saving ? 'Saving...' : 'Save profile & recompute estimate'}
       </button>
 
       {estimate && (
-        <div className="bg-slate-950/40 p-3 rounded-xl border border-white/10 text-[10.5px] font-mono space-y-1">
+        <div className="bg-white/80 p-3 rounded-xl border border-black/10 text-[10.5px] font-mono space-y-1">
           {estimate.flight_time_min !== null ? (
             <>
-              <div className="flex justify-between"><span className="text-slate-400">Est. flight time</span><span className="text-cyan-300 font-bold">{estimate.flight_time_min} min</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Est. max range</span><span className="text-cyan-300 font-bold">{estimate.range_m} m</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Hover current</span><span className="text-slate-300">{estimate.hover_current_a} A</span></div>
+              <div className="flex justify-between"><span className="text-[#6e6e73]">Est. flight time</span><span className="text-[#0071e3] font-bold">{estimate.flight_time_min} min</span></div>
+              <div className="flex justify-between"><span className="text-[#6e6e73]">Est. max range</span><span className="text-[#0071e3] font-bold">{estimate.range_m} m</span></div>
+              <div className="flex justify-between"><span className="text-[#6e6e73]">Hover current</span><span className="text-[#424245]">{estimate.hover_current_a} A</span></div>
             </>
           ) : (
-            <div className="text-amber-400">{estimate.note}</div>
+            <div className="text-amber-600">{estimate.note}</div>
           )}
-          <div className="flex items-start gap-1.5 text-amber-400/90 pt-1 border-t border-white/5 mt-1">
+          <div className="flex items-start gap-1.5 text-amber-600/90 pt-1 border-t border-black/5 mt-1">
             <Zap className="w-3 h-3 shrink-0 mt-0.5" />
             <span>{estimate.note}</span>
           </div>
