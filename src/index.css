@@ -28,6 +28,14 @@
   background: rgba(255, 208, 44, 0.45);
 }
 
+/* Deep-navy holographic basemap tint (ref: dribbble 25711529) — recolors
+   the grayscale dark-matter tiles into the shot's blue-navy terrain.
+   Targets only the tile canvas; markers/overlays are sibling DOM nodes
+   and keep their true colors. */
+#uav-tactical-map-panel .maplibregl-canvas {
+  filter: sepia(0.9) hue-rotate(175deg) saturate(2.2) brightness(0.8) contrast(1.05);
+}
+
 @keyframes scanline {
   0% { transform: translateY(-100%); }
   100% { transform: translateY(100%); }
