@@ -172,6 +172,44 @@ export default function MapPane({
   // animate between GPS pings.
   const droneRenderPosRef = useRef<{ lat: number; lng: number } | null>(null);
   const droneAnimFrameRef = useRef<number | null>(null);
+  // Camera-follow during flight: on by default, but a manual drag hands the
+  // camera back to the operator instead of snapping it back on every
+  // telemetry tick (the old behavior made the map un-pannable mid-flight and
+  // read as "the whole map sliding away"). A visible button re-enables it.
+  const followDroneRef = useRef(true);
+  const [followPaused, setFollowPaused] = useState(false);
+  // Google-Maps-style arrow rotation: while the drone is MOVING, point the
+  // arrow along its course over ground (direction of travel computed from
+  // successive GPS fixes). PX4 holds its boot yaw during offboard transit
+  // (the drone crabs sideways), so the compass heading can sit ~90-180 deg
+  // away from the travel direction -- verified live 2026-07-12 (median 123
+  // deg apart during cruise). Compass heading is only used when hovering
+  // (e.g. the ArUco search spin), where course over ground is undefined.
+  const cogFixRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
+  const cogBearingRef = useRef<number | null>(null);
+  const cogLastMoveRef = useRef(0);
+  const arrowRotationDeg = (pos: { lat: number; lng: number; heading: number }): number => {
+    const now = performance.now();
+    const prev = cogFixRef.current;
+    if (!prev) {
+      cogFixRef.current = { lat: pos.lat, lng: pos.lng, t: now };
+    } else if (now - prev.t >= 250) {
+      const dLat = (pos.lat - prev.lat) * 111320;
+      const dLng = (pos.lng - prev.lng) * 111320 * Math.cos((pos.lat * Math.PI) / 180);
+      const d = Math.hypot(dLat, dLng);
+      const speed = d / ((now - prev.t) / 1000);
+      if (speed > 0.8 && d > 0.2) {
+        cogBearingRef.current = (Math.atan2(dLng, dLat) * 180) / Math.PI;
+        cogLastMoveRef.current = now;
+      }
+      cogFixRef.current = { lat: pos.lat, lng: pos.lng, t: now };
+    }
+    // Hovering for >1.5s -> trust the compass again (shows the search spin).
+    if (cogBearingRef.current !== null && now - cogLastMoveRef.current < 1500) {
+      return cogBearingRef.current;
+    }
+    return pos.heading;
+  };
   const animateDroneTo = (target: { lat: number; lng: number }) => {
     const marker = droneMarkerRef.current;
     if (!marker) return;
@@ -211,6 +249,18 @@ export default function MapPane({
 
   const [mapLoaded, setMapLoaded] = useState(false);
 
+  // Straight-line distance (m) from the live drone position to the mission
+  // target: the last map-click stop if one exists, else the quick destLoc.
+  const finalStop = waypoints.length > 0 ? waypoints[waypoints.length - 1] : destLoc;
+  const targetLabel = waypoints.length > 0 ? `WP ${waypoints[waypoints.length - 1].label}` : 'DEST';
+  const distToTargetM = finalStop
+    ? (() => {
+        const dLat = (finalStop.lat - dronePos.lat) * 111320;
+        const dLng = (finalStop.lng - dronePos.lng) * 111320 * Math.cos((dronePos.lat * Math.PI) / 180);
+        return Math.sqrt(dLat * dLat + dLng * dLng);
+      })()
+    : null;
+
   // MapLibre Map Initialization
   useEffect(() => {
     if (!containerRef.current) return;
@@ -227,6 +277,13 @@ export default function MapPane({
     });
 
     mapRef.current = map;
+
+    // A user drag mid-flight means "let me look around" -- stop the
+    // per-tick recentering until the follow button is pressed again.
+    map.on('dragstart', () => {
+      followDroneRef.current = false;
+      setFollowPaused(true);
+    });
 
     // Handle map clicks
     map.on('click', (e) => {
@@ -523,7 +580,7 @@ export default function MapPane({
         <div id="maplibre-drone-wrapper" class="relative flex items-center justify-center h-10 w-10">
           <div class="absolute -inset-2.5 rounded-full border border-[#1ebcbd]/25"></div>
           <div class="absolute -inset-1 rounded-full border border-[#1ebcbd]/40 animate-ping"></div>
-          <div class="relative flex items-center justify-center p-2 rounded-full bg-[#0a1220] border-2 border-[#1ebcbd] shadow-[0_0_15px_rgba(30,188,189,0.6)] text-white font-bold h-10 w-10 origin-center transition-all" style="transform: rotate(${dronePos.heading}deg);">
+          <div class="relative flex items-center justify-center p-2 rounded-full bg-[#0a1220] border-2 border-[#1ebcbd] shadow-[0_0_15px_rgba(30,188,189,0.6)] text-white font-bold h-10 w-10 origin-center transition-all" style="transform: rotate(${arrowRotationDeg(dronePos)}deg);">
             <svg class="w-5 h-5 text-[#8ae8e9]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="m12 2-7.5 19 7.5-3 7.5 3-7.5-19Z"/>
             </svg>
@@ -542,15 +599,26 @@ export default function MapPane({
     } else {
       animateDroneTo({ lat: dronePos.lat, lng: dronePos.lng });
       if (droneRotateNodeRef.current) {
-        droneRotateNodeRef.current.style.transform = `rotate(${dronePos.heading}deg)`;
+        droneRotateNodeRef.current.style.transform = `rotate(${arrowRotationDeg(dronePos)}deg)`;
       }
     }
 
-    // Auto center map tracking viewport as drone is active
-    if (flightState === FlightState.EN_ROUTE) {
+    // Auto center map tracking viewport as drone is active -- unless the
+    // operator dragged the camera away (followDroneRef), in which case the
+    // map stays where they put it until they press the follow button.
+    if (flightState === FlightState.EN_ROUTE && followDroneRef.current) {
       map.setCenter([dronePos.lng, dronePos.lat]);
     }
   }, [startLoc, destLoc, dronePos, flightState]);
+
+  // A fresh mission always starts with the camera following the drone,
+  // regardless of where the operator left the map last flight.
+  useEffect(() => {
+    if (flightState === FlightState.EN_ROUTE) {
+      followDroneRef.current = true;
+      setFollowPaused(false);
+    }
+  }, [flightState]);
 
   // IDLE recentering — its own effect, keyed on the home COORDINATES (not
   // dronePos), so it fires once when home actually changes (mount
@@ -1202,11 +1270,33 @@ export default function MapPane({
               className="w-full h-full text-[#02131c]" 
               style={{ background: '#0b1329', minHeight: '450px' }} 
             />
+            {/* Live distance to the destination while flying -- makes it
+                visible that the drone is CONVERGING on the target, not
+                wandering (the counter falls every second). */}
+            {flightState === FlightState.EN_ROUTE && distToTargetM !== null && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] bg-[#0a1220]/90 border border-[#1ebcbd]/40 px-4 py-2 rounded-lg text-[12px] font-mono text-[#8ae8e9] backdrop-blur-md uppercase tracking-wide font-bold shadow-[0_0_12px_rgba(30,188,189,0.25)] pointer-events-none">
+                ➤ {targetLabel}: {distToTargetM >= 1000 ? `${(distToTargetM / 1000).toFixed(2)} km` : `${Math.round(distToTargetM)} m`} to go
+              </div>
+            )}
             {/* Custom overlay instructions indicating standard mouse handlers */}
             <div className="absolute bottom-3 left-3 z-[1000] flex items-center gap-2">
               <div className="bg-[#0a1220]/85 border border-[#1ebcbd]/15 p-2.5 rounded-lg text-[10px] font-mono text-[#8fa3b8] backdrop-blur-md pointer-events-none uppercase tracking-wide">
                 🖱️ Left: Point | Right + Drag: Pitch/Rotate
               </div>
+              {flightState === FlightState.EN_ROUTE && followPaused && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    followDroneRef.current = true;
+                    setFollowPaused(false);
+                    mapRef.current?.easeTo({ center: [dronePos.lng, dronePos.lat] });
+                  }}
+                  className="px-3 py-2 border rounded-xl text-[10.5px] font-mono uppercase tracking-wide font-bold backdrop-blur-md transition-all cursor-pointer shadow-lg flex items-center gap-1.5 bg-[#1ebcbd]/15 border-[#1ebcbd]/40 text-[#8ae8e9] hover:bg-[#1ebcbd]/30"
+                >
+                  <Crosshair className="w-3.5 h-3.5 text-[#1ebcbd]" />
+                  Follow drone
+                </button>
+              )}
               <button
                 id="btn-toggle-3d-perspective"
                 type="button"

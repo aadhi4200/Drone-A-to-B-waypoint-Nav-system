@@ -813,7 +813,11 @@ class BridgeNode(Node):
         q = msg.pose.pose.orientation
         siny = 2.0 * (q.w * q.z + q.x * q.y)
         cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        self.heading = math.degrees(math.atan2(siny, cosy)) % 360
+        # MAVROS odom is ENU: atan2 yields yaw with 0 deg = East, CCW-positive.
+        # The dashboard arrow (and any compass display) expects true compass
+        # heading: 0 deg = North, clockwise-positive. Convert here so every
+        # consumer (WebSocket push, REST status, travel log) gets compass.
+        self.heading = (90.0 - math.degrees(math.atan2(siny, cosy))) % 360
 
         if self.altitude >= ABORT_ALTITUDE_M and not self.alt_abort_triggered:
             self.alt_abort_triggered = True
