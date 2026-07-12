@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, generateMarker, setHome, getHome, getMode, ApiError } from './api';
+import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, generateMarker, setHome, getHome, getMode, getTravelLog, ApiError } from './api';
 // NOTE: We import our api functions but rename the local startMission
 // to avoid conflict with the imported one
 import { startMission as ros2Start } from './api';
@@ -388,6 +388,32 @@ export default function App() {
       });
     }
   }, [wsPosition, wsConnected, flightState]);
+
+  // ── Trail restore after mid-flight reconnect ────────────────────────
+  // If the page loads (or the backend comes back) while a mission is already
+  // airborne, the in-memory trail is empty/gapped — rebuild the flown segment
+  // from the persisted travel log so the map shows the whole route, not just
+  // what happened after reconnect. Purely cosmetic: never blocks anything.
+  const seededMissionRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!wsConnected) return;
+    (async () => {
+      try {
+        const status = await getMissionStatus();
+        const mid: number | null = (status as any).mission_id ?? null;
+        if (mid == null || seededMissionRef.current === mid) return;
+        seededMissionRef.current = mid;
+        const log = await getTravelLog(mid);
+        const flown: LatLng[] = (log?.path ?? []).map((p: any) => ({ lat: p.lat, lng: p.lon }));
+        if (flown.length === 0) return;
+        // Prepend: DB points predate anything the live WS has appended since.
+        setTraveledPath(prev => {
+          const merged = [...flown, ...prev];
+          return merged.length > MAX_TRAVELED_POINTS ? merged.slice(merged.length - MAX_TRAVELED_POINTS) : merged;
+        });
+      } catch { /* trail restore is best-effort — ignore */ }
+    })();
+  }, [wsConnected]);
 
   // ── WebSocket IMU push (Feature 6) — drives the live attitude readout too ──
   useEffect(() => {

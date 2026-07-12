@@ -277,6 +277,9 @@ def status():
             "heading":       ros_node.heading,
             "battery":       ros_node.battery_pct,
             "flight_mode":   ros_node.flight_mode,
+            # non-null only while a mission is being recorded — lets a
+            # reconnecting dashboard restore the flown trail from the DB
+            "mission_id":    ros_node.current_mission_id,
         }
     return {"mission_state": "DISCONNECTED"}
 
@@ -556,6 +559,10 @@ class BridgeNode(Node):
 
         # Travel log (Feature 10)
         self.current_mission_id = None
+        # True once the first /mission/status message arrives. Lets _mission_cb
+        # tell "backend booted while a mission was already airborne" (adopt the
+        # open DB row) apart from "watched a mission actually start" (new row).
+        self._mission_state_synced = False
 
         self.create_timer(0.5, self._push_node_status)
         self.create_timer(1.0, self._log_travel_point)
@@ -565,12 +572,24 @@ class BridgeNode(Node):
     # ── Existing callbacks ─────────────────────────
     def _mission_cb(self, msg):
         prev = self.mission_state
+        first_since_boot = not self._mission_state_synced
+        self._mission_state_synced = True
         self.mission_state = msg.data
         self.node_last_seen["mission_manager"] = time.monotonic()
         if prev != msg.data:
             push_from_ros_thread({"type": "mission_state", "mission_state": msg.data})
         if prev not in AIRBORNE_MISSION_STATES and msg.data in AIRBORNE_MISSION_STATES:
-            self.current_mission_id = db.start_mission(self.home_lat, self.home_lon)
+            # If this backend just started and the mission is ALREADY airborne,
+            # a previous backend instance died mid-flight — re-attach to its
+            # open mission row instead of splitting the travel log in two.
+            adopted = db.get_open_mission() if first_since_boot else None
+            if adopted is not None:
+                self.current_mission_id = adopted
+                self.get_logger().warn(
+                    f"Backend restarted mid-flight — adopted open mission {adopted}, "
+                    "travel log continues in the same row.")
+            else:
+                self.current_mission_id = db.start_mission(self.home_lat, self.home_lon)
         elif prev in AIRBORNE_MISSION_STATES and msg.data not in AIRBORNE_MISSION_STATES:
             if self.current_mission_id is not None:
                 outcome = "COMPLETE" if msg.data == "MISSION_COMPLETE" else "ABORTED_LANDED"

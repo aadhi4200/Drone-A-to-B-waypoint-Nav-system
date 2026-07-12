@@ -134,6 +134,26 @@ def end_mission(mission_id: int, outcome: str) -> None:
         _conn.commit()
 
 
+def get_open_mission(max_age_s: float = 3600.0):
+    """Most recent mission row that was never closed out (ended_at IS NULL),
+    or None. Used by a restarting backend to re-attach to a flight that was
+    already airborne when it came up, so the travel log stays one row instead
+    of splitting. max_age_s guards against adopting a stale orphan row left
+    by a crash on some earlier day — no flight here lasts anywhere near an
+    hour, so anything older is an orphan, not the mission in progress."""
+    with _lock:
+        row = _conn.execute(
+            "SELECT id, started_at FROM missions WHERE ended_at IS NULL "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+    if row is None:
+        return None
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(row[1])).total_seconds()
+    except (TypeError, ValueError):
+        return None
+    return row[0] if 0 <= age <= max_age_s else None
+
+
 def log_travel_point(mission_id: int, lat: float, lon: float, alt: float, heading: float) -> None:
     with _lock:
         _conn.execute(
