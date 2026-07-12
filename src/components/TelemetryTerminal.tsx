@@ -177,9 +177,9 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
   });
 
   return (
-    <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col justify-between h-[400px] relative">
+    <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col justify-between h-[400px] lg:h-auto lg:flex-1 lg:min-h-[400px] relative">
       {/* Console Header */}
-      <div className="bg-[#0a0a0c]/90 px-4 py-3 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 backdrop-blur-md">
+      <div className="bg-[#101014] px-4 py-3 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 backdrop-blur-md">
         <div className="flex items-center space-x-2">
           <Terminal className="w-4 h-4 text-[#ffd02c]" />
           <h4 className="font-semibold text-white tracking-wide text-xs uppercase font-mono">Telemetry Log Stream</h4>
@@ -242,7 +242,7 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
       </div>
 
       {/* Console logs box */}
-      <div ref={logContainerRef} className="flex-1 bg-[#0a0a0c]/90 p-4 font-mono text-[10.5px] overflow-auto select-text leading-relaxed font-semibold backdrop-blur-sm">
+      <div ref={logContainerRef} className="flex-1 bg-[#101014] p-4 font-mono text-[10.5px] overflow-auto select-text leading-relaxed font-semibold backdrop-blur-sm">
         {filteredLogs.length > 0 ? (
           <div className="space-y-1">
             {filteredLogs.map((log, index) => (
