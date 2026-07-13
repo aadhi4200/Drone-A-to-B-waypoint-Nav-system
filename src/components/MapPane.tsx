@@ -172,6 +172,54 @@ export default function MapPane({
   // animate between GPS pings.
   const droneRenderPosRef = useRef<{ lat: number; lng: number } | null>(null);
   const droneAnimFrameRef = useRef<number | null>(null);
+  // Camera-follow during flight: on by default, but a manual drag hands the
+  // camera back to the operator instead of snapping it back on every
+  // telemetry tick (the old behavior made the map un-pannable mid-flight and
+  // read as "the whole map sliding away"). A visible button re-enables it.
+  const followDroneRef = useRef(true);
+  const [followPaused, setFollowPaused] = useState(false);
+  // Single source of truth for "which way the arrow points", shared by BOTH
+  // drone renderers (the real MapLibre marker AND the Simulation-tab radar
+  // SVG). Computed once per position update in the sync effect below and
+  // stored here so the radar view's JSX can read it purely, instead of
+  // reading raw dronePos.heading directly -- that raw compass heading is
+  // NOT the direction of travel (PX4 holds its takeoff yaw and crabs
+  // sideways in offboard mode, measured up to ~123deg off the actual
+  // travel direction), which is what made the radar-tab arrow look like it
+  // was pointing backwards/opposite the flight path.
+  const [displayHeadingDeg, setDisplayHeadingDeg] = useState(0);
+  // Google-Maps-style arrow rotation: while the drone is MOVING, point the
+  // arrow along its course over ground (direction of travel computed from
+  // successive GPS fixes). PX4 holds its boot yaw during offboard transit
+  // (the drone crabs sideways), so the compass heading can sit ~90-180 deg
+  // away from the travel direction -- verified live 2026-07-12 (median 123
+  // deg apart during cruise). Compass heading is only used when hovering
+  // (e.g. the ArUco search spin), where course over ground is undefined.
+  const cogFixRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
+  const cogBearingRef = useRef<number | null>(null);
+  const cogLastMoveRef = useRef(0);
+  const arrowRotationDeg = (pos: { lat: number; lng: number; heading: number }): number => {
+    const now = performance.now();
+    const prev = cogFixRef.current;
+    if (!prev) {
+      cogFixRef.current = { lat: pos.lat, lng: pos.lng, t: now };
+    } else if (now - prev.t >= 250) {
+      const dLat = (pos.lat - prev.lat) * 111320;
+      const dLng = (pos.lng - prev.lng) * 111320 * Math.cos((pos.lat * Math.PI) / 180);
+      const d = Math.hypot(dLat, dLng);
+      const speed = d / ((now - prev.t) / 1000);
+      if (speed > 0.8 && d > 0.2) {
+        cogBearingRef.current = (Math.atan2(dLng, dLat) * 180) / Math.PI;
+        cogLastMoveRef.current = now;
+      }
+      cogFixRef.current = { lat: pos.lat, lng: pos.lng, t: now };
+    }
+    // Hovering for >1.5s -> trust the compass again (shows the search spin).
+    if (cogBearingRef.current !== null && now - cogLastMoveRef.current < 1500) {
+      return cogBearingRef.current;
+    }
+    return pos.heading;
+  };
   const animateDroneTo = (target: { lat: number; lng: number }) => {
     const marker = droneMarkerRef.current;
     if (!marker) return;
@@ -211,6 +259,18 @@ export default function MapPane({
 
   const [mapLoaded, setMapLoaded] = useState(false);
 
+  // Straight-line distance (m) from the live drone position to the mission
+  // target: the last map-click stop if one exists, else the quick destLoc.
+  const finalStop = waypoints.length > 0 ? waypoints[waypoints.length - 1] : destLoc;
+  const targetLabel = waypoints.length > 0 ? `WP ${waypoints[waypoints.length - 1].label}` : 'DEST';
+  const distToTargetM = finalStop
+    ? (() => {
+        const dLat = (finalStop.lat - dronePos.lat) * 111320;
+        const dLng = (finalStop.lng - dronePos.lng) * 111320 * Math.cos((dronePos.lat * Math.PI) / 180);
+        return Math.sqrt(dLat * dLat + dLng * dLng);
+      })()
+    : null;
+
   // MapLibre Map Initialization
   useEffect(() => {
     if (!containerRef.current) return;
@@ -227,6 +287,13 @@ export default function MapPane({
     });
 
     mapRef.current = map;
+
+    // A user drag mid-flight means "let me look around" -- stop the
+    // per-tick recentering until the follow button is pressed again.
+    map.on('dragstart', () => {
+      followDroneRef.current = false;
+      setFollowPaused(true);
+    });
 
     // Handle map clicks
     map.on('click', (e) => {
@@ -259,7 +326,7 @@ export default function MapPane({
         type: 'line',
         source: 'direct-path',
         paint: {
-          'line-color': '#d97706',
+          'line-color': '#5b7a9c',
           'line-width': 1.5,
           'line-dasharray': [3, 2]
         }
@@ -274,7 +341,7 @@ export default function MapPane({
         type: 'line',
         source: 'planned-path',
         paint: {
-          'line-color': '#06b6d4',
+          'line-color': '#D1D4DE',
           'line-width': 2.5,
           'line-opacity': 0.5,
           'line-dasharray': [2, 2]
@@ -287,12 +354,25 @@ export default function MapPane({
         type: 'geojson',
         data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
       });
+      // Holographic glow (ref: dribbble 25711529) — wide blurred teal
+      // underlayer beneath the crisp trail line.
+      map.addLayer({
+        id: 'traveled-path-glow',
+        type: 'line',
+        source: 'traveled-path',
+        paint: {
+          'line-color': '#ef4444',
+          'line-width': 11,
+          'line-blur': 8,
+          'line-opacity': 0.35
+        }
+      });
       map.addLayer({
         id: 'traveled-path-layer',
         type: 'line',
         source: 'traveled-path',
         paint: {
-          'line-color': '#22d3ee',
+          'line-color': '#ef4444',
           'line-width': 3.5
         }
       });
@@ -468,7 +548,7 @@ export default function MapPane({
         const el = document.createElement('div');
         el.className = 'custom-dest-icon';
         el.innerHTML = `
-          <div class="relative flex items-center justify-center w-8 h-8 rounded-full bg-slate-950/80 border border-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)] text-emerald-400 font-bold">
+          <div class="relative flex items-center justify-center w-8 h-8 rounded-full bg-[#0a1220]/90 border border-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)] text-emerald-400 font-bold">
             <svg class="w-4 h-4 animate-pulse duration-1000" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"></circle>
               <circle cx="12" cy="12" r="3"></circle>
@@ -499,6 +579,12 @@ export default function MapPane({
     // map coordinate, with rotation stuck at whatever it was when orphaned.
     const droneMarkerIsLive = droneMarkerRef.current
       && document.body.contains(droneMarkerRef.current.getElement());
+    // Computed exactly once per position update (not per render, and not
+    // once per renderer) -- arrowRotationDeg mutates refs to track course
+    // over ground, so calling it more than once per tick would double-count
+    // samples.
+    const rot = arrowRotationDeg(dronePos);
+    setDisplayHeadingDeg(rot);
     if (!droneMarkerIsLive) {
       if (droneMarkerRef.current) {
         droneMarkerRef.current.remove();
@@ -508,10 +594,12 @@ export default function MapPane({
       el.className = 'custom-drone-icon';
       el.innerHTML = `
         <div id="maplibre-drone-wrapper" class="relative flex items-center justify-center h-10 w-10">
-          <div class="absolute -inset-1 rounded-full border border-cyan-500/40 animate-ping"></div>
-          <div class="relative flex items-center justify-center p-2 rounded-full bg-slate-950 border-2 border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.6)] text-white font-bold h-10 w-10 origin-center transition-all" style="transform: rotate(${dronePos.heading}deg);">
-            <svg class="w-5 h-5 text-cyan-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="m12 2-7.5 19 7.5-3 7.5 3-7.5-19Z"/>
+          <div class="absolute -inset-2.5 rounded-full border border-[#1ebcbd]/25"></div>
+          <div class="absolute -inset-1 rounded-full border border-[#1ebcbd]/40 animate-ping"></div>
+          <div class="relative flex items-center justify-center p-2 rounded-full bg-[#0a1220] border-2 border-[#1ebcbd] shadow-[0_0_15px_rgba(30,188,189,0.6)] text-white font-bold h-10 w-10 origin-center transition-all" style="transform: rotate(${rot}deg);">
+            <div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid #ef4444;"></div>
+            <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <path d="M12 2 L19.5 21 L12 16.6 L4.5 21 Z"/>
             </svg>
           </div>
         </div>
@@ -528,15 +616,26 @@ export default function MapPane({
     } else {
       animateDroneTo({ lat: dronePos.lat, lng: dronePos.lng });
       if (droneRotateNodeRef.current) {
-        droneRotateNodeRef.current.style.transform = `rotate(${dronePos.heading}deg)`;
+        droneRotateNodeRef.current.style.transform = `rotate(${rot}deg)`;
       }
     }
 
-    // Auto center map tracking viewport as drone is active
-    if (flightState === FlightState.EN_ROUTE) {
+    // Auto center map tracking viewport as drone is active -- unless the
+    // operator dragged the camera away (followDroneRef), in which case the
+    // map stays where they put it until they press the follow button.
+    if (flightState === FlightState.EN_ROUTE && followDroneRef.current) {
       map.setCenter([dronePos.lng, dronePos.lat]);
     }
   }, [startLoc, destLoc, dronePos, flightState]);
+
+  // A fresh mission always starts with the camera following the drone,
+  // regardless of where the operator left the map last flight.
+  useEffect(() => {
+    if (flightState === FlightState.EN_ROUTE) {
+      followDroneRef.current = true;
+      setFollowPaused(false);
+    }
+  }, [flightState]);
 
   // IDLE recentering — its own effect, keyed on the home COORDINATES (not
   // dronePos), so it fires once when home actually changes (mount
@@ -661,7 +760,7 @@ export default function MapPane({
       labelEl.className = 'custom-obstacle-tooltip select-none pointer-events-none';
       labelEl.style.transform = 'translateY(-18px)';
       labelEl.innerHTML = `
-        <div class="text-[8px] font-mono font-bold text-rose-300 px-1 py-0.5 text-center bg-slate-950/90 rounded border border-rose-500/20 whitespace-nowrap shadow-md">
+        <div class="text-[8px] font-mono font-bold text-rose-300 px-1 py-0.5 text-center bg-[#0a1220]/90 rounded border border-rose-500/20 whitespace-nowrap shadow-md">
           ${obs.type}
         </div>
       `;
@@ -685,8 +784,8 @@ export default function MapPane({
       const el = document.createElement('div');
       const spawned = wp.markerStatus === 'spawned';
       el.innerHTML = `
-        <div class="flex items-center justify-center w-7 h-7 rounded-full bg-slate-950/80 border ${
-          spawned ? 'border-emerald-500 text-emerald-400' : 'border-cyan-500 text-cyan-300'
+        <div class="flex items-center justify-center w-7 h-7 rounded-full bg-[#0a1220]/90 border ${
+          spawned ? 'border-emerald-500 text-emerald-400' : 'border-[#1ebcbd] text-[#5eead4]'
         } font-bold text-[10px] font-mono shadow-lg">
           ${wp.label}
         </div>
@@ -744,28 +843,28 @@ export default function MapPane({
   };
 
   return (
-    <div id="uav-tactical-map-panel" className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[520px] relative">
+    <div id="uav-tactical-map-panel" className="bg-[#0e1a2b]/70 backdrop-blur-xl border border-[#1ebcbd]/15 rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[520px] relative">
       
       {/* Tab bar header */}
-      <div className="bg-slate-950/40 px-4 py-3 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 backdrop-blur-md">
+      <div className="bg-[#0a1220]/85 px-4 py-3 border-b border-[#1ebcbd]/15 flex flex-wrap items-center justify-between gap-3 backdrop-blur-md">
         <div className="flex items-center space-x-2">
-          <Crosshair className="w-5 h-5 text-cyan-400 animate-pulse" />
+          <Crosshair className="w-5 h-5 text-[#1ebcbd] animate-pulse" />
           <div>
             <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">Autonomous Navigation Interface</h3>
-            <p className="text-[10px] text-slate-400 font-mono">Select locations, plan optimized trajectories, bypass obstacle zones</p>
+            <p className="text-[10px] text-[#8fa3b8] font-mono">Select locations, plan optimized trajectories, bypass obstacle zones</p>
           </div>
         </div>
 
         <div className="flex items-center space-x-2">
           {/* Target Placement toggle */}
-          <div className="flex bg-slate-950/60 p-0.5 border border-white/10 rounded-lg">
+          <div className="flex bg-[#0d1726]/80 p-0.5 border border-[#1ebcbd]/15 rounded-lg">
             <button
               id="btn-click-start"
               onClick={() => setClickMode('start')}
               className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all cursor-pointer ${
                 clickMode === 'start'
                   ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
-                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                  : 'text-[#8fa3b8] hover:text-slate-200 border border-transparent'
               }`}
             >
               Start Coords
@@ -776,7 +875,7 @@ export default function MapPane({
               className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all cursor-pointer ${
                 clickMode === 'dest'
                   ? 'bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30'
-                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                  : 'text-[#8fa3b8] hover:text-slate-200 border border-transparent'
               }`}
             >
               Dest Coords
@@ -787,7 +886,7 @@ export default function MapPane({
               className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all cursor-pointer ${
                 clickMode === 'fence'
                   ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
-                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                  : 'text-[#8fa3b8] hover:text-slate-200 border border-transparent'
               }`}
             >
               Fence
@@ -796,7 +895,7 @@ export default function MapPane({
 
           {/* Fence drawing controls — only while in fence mode */}
           {clickMode === 'fence' && (
-            <div className="flex items-center space-x-1.5 bg-slate-950/60 p-0.5 border border-amber-500/30 rounded-lg">
+            <div className="flex items-center space-x-1.5 bg-[#0d1726]/80 p-0.5 border border-amber-500/30 rounded-lg">
               <span className="px-1.5 text-[10px] font-mono text-amber-400/80">
                 {fenceDraft.length > 0
                   ? `${fenceDraft.length} vertex${fenceDraft.length === 1 ? '' : 'es'}`
@@ -830,14 +929,14 @@ export default function MapPane({
           )}
 
           {/* Engine Selection Tabs */}
-          <div className="flex bg-slate-950/60 p-1 border border-white/10 rounded-lg">
+          <div className="flex bg-[#0d1726]/80 p-1 border border-[#1ebcbd]/15 rounded-lg">
             <button
               id="tab-sim-engine"
               onClick={() => setActiveTab('simulation')}
               className={`px-3 py-1 rounded text-[10.5px] font-mono font-semibold transition-all cursor-pointer ${
                 activeTab === 'simulation'
-                  ? 'bg-cyan-500 text-slate-950 font-bold shadow-[0_0_10px_rgba(6,182,212,0.3)]'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-[#1ebcbd] text-[#02131c] font-bold shadow-[0_0_10px_rgba(30,188,189,0.3)]'
+                  : 'text-[#8fa3b8] hover:text-white'
               }`}
             >
               SIM GRID
@@ -847,8 +946,8 @@ export default function MapPane({
               onClick={() => setActiveTab('leaflet')}
               className={`px-3 py-1 rounded text-[10.5px] font-mono font-semibold transition-all tracking-wider cursor-pointer ${
                 activeTab === 'leaflet'
-                  ? 'bg-cyan-500 text-slate-950 font-bold shadow-[0_0_10px_rgba(6,182,212,0.3)]'
-                  : 'text-cyan-400 hover:text-white'
+                  ? 'bg-[#1ebcbd] text-[#02131c] font-bold shadow-[0_0_10px_rgba(30,188,189,0.3)]'
+                  : 'text-[#1ebcbd] hover:text-white'
               }`}
             >
               MAPLIBRE MAP 3.0 ●
@@ -858,17 +957,17 @@ export default function MapPane({
       </div>
 
       {/* Map Content Viewport */}
-      <div className="flex-1 bg-slate-950/30 relative overflow-hidden select-none">
+      <div className="flex-1 bg-[#0a1220]/30 relative overflow-hidden select-none">
         
         {/* Floating Search Base */}
         <div className="absolute top-3 right-3 z-[1005] w-72 select-text font-mono">
           <form 
             onSubmit={handleSearch} 
-            className={`relative flex items-center bg-slate-950/90 border rounded-xl px-2.5 py-1.5 shadow-[0_0_15px_rgba(6,182,212,0.2)] backdrop-blur-md transition-colors ${
-              clickMode === 'start' ? 'border-amber-500/50' : 'border-cyan-500/30'
+            className={`relative flex items-center bg-[#0a1220]/90 border rounded-xl px-2.5 py-1.5 shadow-[0_0_15px_rgba(30,188,189,0.2)] backdrop-blur-md transition-colors ${
+              clickMode === 'start' ? 'border-amber-500/50' : 'border-[#1ebcbd]/30'
             }`}
           >
-            <Search className={`w-3.5 h-3.5 mr-2 shrink-0 ${clickMode === 'start' ? 'text-amber-400' : 'text-cyan-400'}`} />
+            <Search className={`w-3.5 h-3.5 mr-2 shrink-0 ${clickMode === 'start' ? 'text-amber-400' : 'text-[#1ebcbd]'}`} />
             <input
               type="text"
               placeholder={clickMode === 'start' ? "Search starting location / city..." : "Search target delivery zone..."}
@@ -880,7 +979,7 @@ export default function MapPane({
               className="bg-transparent border-none text-white focus:outline-none text-[11px] w-full placeholder-slate-500"
             />
             {isSearching ? (
-              <Loader2 className={`w-3.5 h-3.5 animate-spin shrink-0 ml-1 ${clickMode === 'start' ? 'text-amber-400' : 'text-cyan-400'}`} />
+              <Loader2 className={`w-3.5 h-3.5 animate-spin shrink-0 ml-1 ${clickMode === 'start' ? 'text-amber-400' : 'text-[#1ebcbd]'}`} />
             ) : searchQuery ? (
               <button
                 type="button"
@@ -889,7 +988,7 @@ export default function MapPane({
                   setSearchResults([]);
                   setShowDropdown(false);
                 }}
-                className="text-slate-500 hover:text-white text-xs shrink-0 ml-1 px-1 cursor-pointer"
+                className="text-[#6b7f94] hover:text-white text-xs shrink-0 ml-1 px-1 cursor-pointer"
               >
                 ×
               </button>
@@ -903,8 +1002,8 @@ export default function MapPane({
                 className="fixed inset-0 z-[1003]" 
                 onClick={() => setShowDropdown(false)} 
               />
-              <div className={`absolute right-0 left-0 mt-1.5 bg-slate-950/95 border rounded-xl shadow-2xl overflow-hidden max-h-56 overflow-y-auto backdrop-blur-lg z-[1004] ${
-                clickMode === 'start' ? 'border-amber-500/40' : 'border-cyan-500/35'
+              <div className={`absolute right-0 left-0 mt-1.5 bg-[#0a1220]/95 border rounded-xl shadow-2xl overflow-hidden max-h-56 overflow-y-auto backdrop-blur-lg z-[1004] ${
+                clickMode === 'start' ? 'border-amber-500/40' : 'border-[#1ebcbd]/35'
               }`}>
                 {searchError ? (
                   <div className="p-3 text-[10px] text-rose-400 text-center uppercase tracking-wider">
@@ -916,13 +1015,13 @@ export default function MapPane({
                       key={idx}
                       type="button"
                       onClick={() => handleSelectLocation(loc)}
-                      className="w-full text-left p-2.5 text-[10px] text-slate-300 hover:bg-cyan-500/15 hover:text-cyan-200 border-b border-white/5 transition-colors flex items-start space-x-2 last:border-b-0 cursor-pointer"
+                      className="w-full text-left p-2.5 text-[10px] text-[#b8c5d4] hover:bg-[#1ebcbd]/15 hover:text-[#8ae8e9] border-b border-[#1ebcbd]/10 transition-colors flex items-start space-x-2 last:border-b-0 cursor-pointer"
                     >
                       <MapPin className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${clickMode === 'start' ? 'text-amber-500' : 'text-emerald-400'}`} />
                       <div className="flex-1 truncate">
                         <div className="font-bold text-white truncate">{loc.name || 'Location ' + (idx + 1)}</div>
-                        <div className="text-slate-400 truncate text-[9px] mt-0.5">{loc.display_name}</div>
-                        <div className="text-cyan-400/80 text-[8px] mt-0.5 font-bold">
+                        <div className="text-[#8fa3b8] truncate text-[9px] mt-0.5">{loc.display_name}</div>
+                        <div className="text-[#1ebcbd]/80 text-[8px] mt-0.5 font-bold">
                           Lat: {parseFloat(loc.lat).toFixed(5)} | Lng: {parseFloat(loc.lon).toFixed(5)}
                         </div>
                       </div>
@@ -938,12 +1037,12 @@ export default function MapPane({
           /* Custom High-Tech simulated Radar/Telemetry Canvas grid */
           <div className="absolute inset-0 flex flex-col justify-between">
             {/* Legend Indicators overlay */}
-            <div className="absolute top-3 left-3 z-10 bg-slate-950/80 border border-white/10 p-3 rounded-xl font-mono text-[9.5px] text-slate-300 space-y-1.5 shadow-xl max-w-[210px] backdrop-blur-md">
-              <div className="text-cyan-400 font-bold border-b border-white/10 pb-1 mb-1 text-[10px] uppercase tracking-wide">Radar Vector Legend</div>
+            <div className="absolute top-3 left-3 z-10 bg-[#0a1220]/90 border border-[#1ebcbd]/15 p-3 rounded-xl font-mono text-[9.5px] text-[#b8c5d4] space-y-1.5 shadow-xl max-w-[210px] backdrop-blur-md">
+              <div className="text-[#1ebcbd] font-bold border-b border-[#1ebcbd]/15 pb-1 mb-1 text-[10px] uppercase tracking-wide">Radar Vector Legend</div>
               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-amber-500 mr-2 shrink-0" /> UAV Base Transceiver (S)</div>
               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 mr-2 shrink-0 animate-pulse" /> Delivery Destination (D)</div>
               <div className="flex items-center"><div className="w-3 h-0.5 bg-amber-600 mr-2 shrink-0" /> Standard Path (Direct/Unsafe)</div>
-              <div className="flex items-center"><div className="w-3 h-0.5 bg-cyan-400 mr-2 shrink-0" /> Optimized Path (Safe/Avoided)</div>
+              <div className="flex items-center"><div className="w-3 h-0.5 bg-[#1ebcbd] mr-2 shrink-0" /> Optimized Path (Safe/Avoided)</div>
 
               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-rose-500/20 border border-rose-500 animate-pulse mr-2 shrink-0" /> Dynamic Obstacle Zone</div>
               {avoidanceActive && (
@@ -1149,7 +1248,7 @@ export default function MapPane({
               {/* Dynamic Flight Drone Copter representation */}
               <g className="transition-all duration-200">
                 <g
-                  transform={`translate(${lngToX(dronePos.lng) - 50}px, ${latToY(dronePos.lat) - 50}px) rotate(${dronePos.heading}deg) scale(0.85)`}
+                  transform={`translate(${lngToX(dronePos.lng) - 50}px, ${latToY(dronePos.lat) - 50}px) rotate(${displayHeadingDeg}deg) scale(0.85)`}
                   className="origin-center"
                 >
                   {/* Blinking radio range aura */}
@@ -1175,8 +1274,8 @@ export default function MapPane({
             </svg>
 
             {/* Radar Coordinates Monitor Footer strip */}
-            <div className="bg-slate-950 px-4 py-2 border-t border-slate-900 flex justify-between items-center text-[10.5px] text-slate-400 font-mono">
-              <span className="flex items-center"><RefreshCw className={`w-3 h-3 mr-1 text-cyan-400 ${flightState === FlightState.EN_ROUTE ? 'animate-spin' : ''}`} /> UAV Drone telemetry matching</span>
+            <div className="bg-[#0a1220] px-4 py-2 border-t border-[#1ebcbd]/10 flex justify-between items-center text-[10.5px] text-[#8fa3b8] font-mono">
+              <span className="flex items-center"><RefreshCw className={`w-3 h-3 mr-1 text-[#1ebcbd] ${flightState === FlightState.EN_ROUTE ? 'animate-spin' : ''}`} /> UAV Drone telemetry matching</span>
               <span>Coordinates: {dronePos.lat.toFixed(6)}, {dronePos.lng.toFixed(6)} | Heading: {dronePos.heading.toFixed(1)}°</span>
             </div>
           </div>
@@ -1185,25 +1284,47 @@ export default function MapPane({
           <div className="w-full h-full relative" style={{ minHeight: '100%' }}>
             <div 
               ref={containerRef} 
-              className="w-full h-full text-slate-950" 
+              className="w-full h-full text-[#02131c]" 
               style={{ background: '#0b1329', minHeight: '450px' }} 
             />
+            {/* Live distance to the destination while flying -- makes it
+                visible that the drone is CONVERGING on the target, not
+                wandering (the counter falls every second). */}
+            {flightState === FlightState.EN_ROUTE && distToTargetM !== null && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] bg-[#0a1220]/90 border border-[#1ebcbd]/40 px-4 py-2 rounded-lg text-[12px] font-mono text-[#8ae8e9] backdrop-blur-md uppercase tracking-wide font-bold shadow-[0_0_12px_rgba(30,188,189,0.25)] pointer-events-none">
+                ➤ {targetLabel}: {distToTargetM >= 1000 ? `${(distToTargetM / 1000).toFixed(2)} km` : `${Math.round(distToTargetM)} m`} to go
+              </div>
+            )}
             {/* Custom overlay instructions indicating standard mouse handlers */}
             <div className="absolute bottom-3 left-3 z-[1000] flex items-center gap-2">
-              <div className="bg-slate-950/85 border border-white/10 p-2.5 rounded-lg text-[10px] font-mono text-slate-400 backdrop-blur-md pointer-events-none uppercase tracking-wide">
+              <div className="bg-[#0a1220]/85 border border-[#1ebcbd]/15 p-2.5 rounded-lg text-[10px] font-mono text-[#8fa3b8] backdrop-blur-md pointer-events-none uppercase tracking-wide">
                 🖱️ Left: Point | Right + Drag: Pitch/Rotate
               </div>
+              {flightState === FlightState.EN_ROUTE && followPaused && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    followDroneRef.current = true;
+                    setFollowPaused(false);
+                    mapRef.current?.easeTo({ center: [dronePos.lng, dronePos.lat] });
+                  }}
+                  className="px-3 py-2 border rounded-xl text-[10.5px] font-mono uppercase tracking-wide font-bold backdrop-blur-md transition-all cursor-pointer shadow-lg flex items-center gap-1.5 bg-[#1ebcbd]/15 border-[#1ebcbd]/40 text-[#8ae8e9] hover:bg-[#1ebcbd]/30"
+                >
+                  <Crosshair className="w-3.5 h-3.5 text-[#1ebcbd]" />
+                  Follow drone
+                </button>
+              )}
               <button
                 id="btn-toggle-3d-perspective"
                 type="button"
                 onClick={toggle3DMode}
                 className={`px-3 py-2 border rounded-xl text-[10.5px] font-mono uppercase tracking-wide font-bold backdrop-blur-md transition-all cursor-pointer shadow-lg flex items-center gap-1.5 ${
                   is3DMode 
-                    ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/30' 
-                    : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:text-white hover:border-slate-600'
+                    ? 'bg-[#1ebcbd]/15 border-[#1ebcbd]/40 text-[#8ae8e9] hover:bg-[#1ebcbd]/30' 
+                    : 'bg-[#0a1220]/90 border-slate-800 text-[#8fa3b8] hover:text-white hover:border-slate-600'
                 }`}
               >
-                <Layers className={`w-3.5 h-3.5 ${is3DMode ? 'text-cyan-400' : 'text-slate-400'}`} />
+                <Layers className={`w-3.5 h-3.5 ${is3DMode ? 'text-[#1ebcbd]' : 'text-[#8fa3b8]'}`} />
                 {is3DMode ? '3D Active' : 'Enable 3D'}
               </button>
             </div>

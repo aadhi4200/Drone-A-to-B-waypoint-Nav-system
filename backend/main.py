@@ -73,7 +73,14 @@ TARGET_ALTITUDE_M = 2.5
 # alike) self-abort via this exact check mid-climb, before ever reaching
 # home. 10.0m = 7.0m RTH climb + ~3m margin for transient setpoint overshoot
 # (observed up to ~8.3m actual against a 7.0m target in that same test).
-ABORT_ALTITUDE_M   = 10.0
+ABORT_ALTITUDE_M    = 15.0
+ALT_ABORT_DEBOUNCE_S = 0.3  # must read over the ceiling continuously for
+                            # this long before the safety abort fires  # was 10.0 -- RTH cruises at 7m and WSL EKF
+                           # altitude drift (+2m seen live 2026-07-13 after a
+                           # 30s search spin) ate the 3m margin and false-
+                           # aborted a return-home; 15m keeps the net well
+                           # above RTH_ALTITUDE + drift while still catching
+                           # a real runaway climb
 DEFAULT_MAX_SPEED_MS = 3.0
 HOME_MISMATCH_THRESHOLD_M = 1000.0
 
@@ -242,6 +249,7 @@ def start():
     _require_all_clear()
     if ros_node:
         ros_node.alt_abort_triggered = False
+        ros_node._alt_over_since   = None
         ros_node.mission_state = "IDLE"
         msg = String(); msg.data = "START"
         ros_node.cmd_pub.publish(msg)
@@ -305,6 +313,66 @@ def disarm_drone():
         msg = String(); msg.data = "DISARM"
         ros_node.base_cmd_pub.publish(msg)
     return {"status": "ok", "command": "DISARM"}
+
+
+@app.post("/drone/takeoff")
+def drone_takeoff():
+    """Manual bench takeoff (Flight Test Bench) -- outside any autonomous
+    mission. TAKEOFF on /drone_base/command arms AND sets OFFBOARD itself
+    (see drone_base_node._arm_and_offboard), so this doesn't require a
+    separate prior /drone/arm call, same as mission_manager's own PREFLIGHT
+    -> TAKEOFF transition.
+    """
+    if not ros_node:
+        raise HTTPException(503, "ROS bridge not connected")
+    if not ros_node.mavros_connected:
+        raise HTTPException(503, "MAVROS not connected.")
+    if ros_node.mission_state not in ("IDLE", "MISSION_COMPLETE", "MISSION_ABORT"):
+        raise HTTPException(409, "A mission is active — stop/reset it before manual takeoff.")
+    msg = String(); msg.data = "TAKEOFF"
+    ros_node.base_cmd_pub.publish(msg)
+    return {"status": "ok", "command": "TAKEOFF"}
+
+
+@app.post("/drone/land")
+def drone_land():
+    """Manual bench land -- ends a manual-control test flight in place."""
+    if not ros_node:
+        raise HTTPException(503, "ROS bridge not connected")
+    if ros_node.drone_status not in ("AIRBORNE", "LANDING"):
+        raise HTTPException(409, "Drone is not airborne.")
+    msg = String(); msg.data = "LAND"
+    ros_node.base_cmd_pub.publish(msg)
+    return {"status": "ok", "command": "LAND"}
+
+
+MANUAL_NUDGE_CMDS = {"FWD", "BACK", "LEFT", "RIGHT", "UP", "DOWN", "YAW_LEFT", "YAW_RIGHT", "HOLD"}
+
+
+@app.post("/drone/manual/{cmd}")
+def manual_nudge(cmd: str):
+    """Flight Test Bench directional pad -- small position/yaw nudges for
+    bench/real-drone attitude and control-response testing.
+
+    Deliberately gated narrower than _require_all_clear(): that gate also
+    demands GPS lock and a matching geofence, which would block exactly the
+    indoor/tripod bench testing this exists for. Manual control only needs
+    the mission state machine to be idle (so it can never race a running
+    autonomous mission for setpoint ownership) and the vehicle to already
+    be armed (arming itself already requires MAVROS to be connected).
+    """
+    cmd = cmd.upper()
+    if cmd not in MANUAL_NUDGE_CMDS:
+        raise HTTPException(400, f"Unknown manual command: {cmd}")
+    if not ros_node:
+        raise HTTPException(503, "ROS bridge not connected")
+    if ros_node.mission_state not in ("IDLE", "MISSION_COMPLETE", "MISSION_ABORT"):
+        raise HTTPException(409, "A mission is active — stop/reset it before using manual control.")
+    if ros_node.drone_status not in ("ARMED", "AIRBORNE", "LANDING"):
+        raise HTTPException(409, "Drone is not armed — arm (and take off) before manual control.")
+    msg = String(); msg.data = cmd
+    ros_node.manual_nudge_pub.publish(msg)
+    return {"status": "ok", "cmd": cmd}
 
 
 @app.get("/mission/status")
@@ -587,6 +655,7 @@ class BridgeNode(Node):
         self.waypoints_pub = self.create_publisher(String, "/mission/waypoints", 10)
         self.cmd_pub = self.create_publisher(String, "/mission/command", 10)
         self.base_cmd_pub = self.create_publisher(String, "/drone_base/command", 10)
+        self.manual_nudge_pub = self.create_publisher(String, "/manual/nudge", 10)
 
         # ── Subscribers: mission/base/camera (existing) ──
         self.create_subscription(String,    "/mission/status",               self._mission_cb, 10)
@@ -632,6 +701,7 @@ class BridgeNode(Node):
         self.geofence_push_confirmed = False
         self._geofence_timer = None
         self.alt_abort_triggered = False
+        self._alt_over_since   = None
         self.home_lat = self.home_lon = None
 
         self.latest_frame  = None
@@ -813,16 +883,34 @@ class BridgeNode(Node):
         q = msg.pose.pose.orientation
         siny = 2.0 * (q.w * q.z + q.x * q.y)
         cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        self.heading = math.degrees(math.atan2(siny, cosy)) % 360
+        # MAVROS odom is ENU: atan2 yields yaw with 0 deg = East, CCW-positive.
+        # The dashboard arrow (and any compass display) expects true compass
+        # heading: 0 deg = North, clockwise-positive. Convert here so every
+        # consumer (WebSocket push, REST status, travel log) gets compass.
+        self.heading = (90.0 - math.degrees(math.atan2(siny, cosy))) % 360
 
-        if self.altitude >= ABORT_ALTITUDE_M and not self.alt_abort_triggered:
-            self.alt_abort_triggered = True
-            self.mission_state = "MISSION_ABORT"
-            push_from_ros_thread({"type": "mission_state", "mission_state": "MISSION_ABORT"})
-            self.get_logger().warn(
-                f"SAFETY: altitude {self.altitude:.2f}m >= {ABORT_ALTITUDE_M}m limit — aborting mission")
-            abort_msg = String(); abort_msg.data = "ABORT"
-            self.cmd_pub.publish(abort_msg)
+        # Debounced trigger: reproduced live twice (2026-07-13, two
+        # different worlds) a ONE-SAMPLE EKF altitude glitch after
+        # re-arming post-landing -- e.g. 4.1m jumping to 18.0m within a
+        # single odom tick, not a real climb. A genuine runaway still stays
+        # over the ceiling on the next several samples (odom publishes at
+        # ~30-50Hz here, so this costs at most a couple hundred ms of real
+        # safety response time) -- a lone glitch does not.
+        now = time.monotonic()
+        if self.altitude >= ABORT_ALTITUDE_M:
+            if self._alt_over_since is None:
+                self._alt_over_since = now
+            elif not self.alt_abort_triggered and (now - self._alt_over_since) >= ALT_ABORT_DEBOUNCE_S:
+                self.alt_abort_triggered = True
+                self.mission_state = "MISSION_ABORT"
+                push_from_ros_thread({"type": "mission_state", "mission_state": "MISSION_ABORT"})
+                self.get_logger().warn(
+                    f"SAFETY: altitude {self.altitude:.2f}m >= {ABORT_ALTITUDE_M}m limit "
+                    f"for {ALT_ABORT_DEBOUNCE_S}s — aborting mission")
+                abort_msg = String(); abort_msg.data = "ABORT"
+                self.cmd_pub.publish(abort_msg)
+        else:
+            self._alt_over_since = None
 
     def _imu_cb(self, msg: Imu):
         q = msg.orientation

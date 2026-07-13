@@ -49,17 +49,17 @@ export default function DroneProfilePanel({ mode, onModeChange }: DroneProfilePa
   };
 
   return (
-    <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl space-y-3">
+    <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <Settings2 className="w-4 h-4 text-cyan-400" />
+          <Settings2 className="w-4 h-4 text-[#ffd02c]" />
           <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">Drone Profile & Mode</h3>
         </div>
         <button
           onClick={toggleMode}
           className={`px-3 py-1 rounded-lg text-[10px] font-mono font-bold uppercase cursor-pointer border flex items-center gap-1.5 ${
             mode === 'sim'
-              ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+              ? 'bg-[#ffd02c]/10 border-[#ffd02c]/30 text-[#ffd02c]'
               : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
           }`}
         >
@@ -69,13 +69,13 @@ export default function DroneProfilePanel({ mode, onModeChange }: DroneProfilePa
 
       <div className="grid grid-cols-2 gap-2">
         {FIELDS.map(f => (
-          <label key={f.key} className="text-[9px] font-mono text-slate-400 space-y-0.5">
+          <label key={f.key} className="text-[9px] font-mono text-[#9a9aa2] space-y-0.5">
             {f.label}
             <input
               type="number"
               value={profile[f.key] ?? ''}
               onChange={e => handleField(f.key, e.target.value)}
-              className="w-full bg-slate-950/40 border border-white/10 rounded px-2 py-1 text-white text-[11px]"
+              className="w-full bg-[#0a0a0c]/90 border border-white/10 rounded px-2 py-1 text-white text-[11px]"
             />
           </label>
         ))}
@@ -84,18 +84,18 @@ export default function DroneProfilePanel({ mode, onModeChange }: DroneProfilePa
       <button
         onClick={handleSave}
         disabled={saving}
-        className="w-full py-2 rounded-xl text-xs font-bold uppercase bg-cyan-500 text-slate-950 hover:bg-cyan-400 cursor-pointer disabled:opacity-50"
+        className="w-full py-2 rounded-xl text-xs font-bold uppercase bg-[#ffd02c] text-black hover:bg-[#ffdd55] cursor-pointer disabled:opacity-50"
       >
         {saving ? 'Saving...' : 'Save profile & recompute estimate'}
       </button>
 
       {estimate && (
-        <div className="bg-slate-950/40 p-3 rounded-xl border border-white/10 text-[10.5px] font-mono space-y-1">
+        <div className="bg-[#0a0a0c]/90 p-3 rounded-xl border border-white/10 text-[10.5px] font-mono space-y-1">
           {estimate.flight_time_min !== null ? (
             <>
-              <div className="flex justify-between"><span className="text-slate-400">Est. flight time</span><span className="text-cyan-300 font-bold">{estimate.flight_time_min} min</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Est. max range</span><span className="text-cyan-300 font-bold">{estimate.range_m} m</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Hover current</span><span className="text-slate-300">{estimate.hover_current_a} A</span></div>
+              <div className="flex justify-between"><span className="text-[#9a9aa2]">Est. flight time</span><span className="text-[#ffd02c] font-bold">{estimate.flight_time_min} min</span></div>
+              <div className="flex justify-between"><span className="text-[#9a9aa2]">Est. max range</span><span className="text-[#ffd02c] font-bold">{estimate.range_m} m</span></div>
+              <div className="flex justify-between"><span className="text-[#9a9aa2]">Hover current</span><span className="text-[#d1d1d6]">{estimate.hover_current_a} A</span></div>
             </>
           ) : (
             <div className="text-amber-400">{estimate.note}</div>

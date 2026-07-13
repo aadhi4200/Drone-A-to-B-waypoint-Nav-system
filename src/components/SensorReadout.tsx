@@ -43,49 +43,49 @@ export default function SensorReadout({
     <div id="uav-sensors-and-climate" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 relative z-10">
       
       {/* 1. Spatial Sensors & Orientation Visualized */}
-      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden">
+      <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden">
         <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
           <div className="flex items-center space-x-2">
-            <Cpu className="w-5 h-5 text-cyan-400" />
+            <Cpu className="w-5 h-5 text-[#ffd02c]" />
             <h3 className="font-semibold text-white tracking-wide text-sm uppercase font-display">Spatial Sensors</h3>
           </div>
-          <span className="text-[10px] font-mono px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded border border-cyan-500/20">LIVE-STREAM</span>
+          <span className="text-[10px] font-mono px-2 py-0.5 bg-[#ffd02c]/10 text-[#ffd02c] rounded border border-[#ffd02c]/20">LIVE-STREAM</span>
         </div>
 
         {/* Dynamic Spatial Graphic */}
-        <div className="flex justify-around items-center my-2 py-2.5 bg-slate-950/40 rounded-xl border border-white/10">
+        <div className="flex justify-around items-center my-2 py-2.5 bg-[#0a0a0c]/90 rounded-xl border border-white/10">
           {/* Pitch */}
           <div className="text-center relative">
-            <div className="text-[10px] text-slate-400 font-mono mb-1 uppercase">PITCH</div>
-            <div className="w-16 h-16 rounded-full border border-white/10 flex items-center justify-center relative overflow-hidden bg-slate-950">
+            <div className="text-[10px] text-[#9a9aa2] font-mono mb-1 uppercase">PITCH</div>
+            <div className="w-16 h-16 rounded-full border border-white/10 flex items-center justify-center relative overflow-hidden bg-[#141417]">
               {/* Pitch bar indicator */}
               <div 
-                className="absolute w-12 h-0.5 bg-cyan-400 transition-transform duration-200"
+                className="absolute w-12 h-0.5 bg-[#ffd02c] transition-transform duration-200"
                 style={{ transform: `rotate(${sensors.pitch}deg) translateY(${sensors.pitch * 0.5}px)` }}
               />
-              <div className="absolute inset-0 border border-cyan-400/10 pointer-events-none" />
-              <span className="z-10 text-[11px] font-mono text-cyan-300 font-semibold">{sensors.pitch.toFixed(1)}°</span>
+              <div className="absolute inset-0 border border-[#ffd02c]/10 pointer-events-none" />
+              <span className="z-10 text-[11px] font-mono text-[#ffd02c] font-semibold">{sensors.pitch.toFixed(1)}°</span>
             </div>
           </div>
 
           {/* Roll */}
           <div className="text-center relative">
-            <div className="text-[10px] text-slate-400 font-mono mb-1 uppercase">ROLL</div>
-            <div className="w-16 h-16 rounded-full border border-white/10 flex items-center justify-center relative overflow-hidden bg-slate-950">
+            <div className="text-[10px] text-[#9a9aa2] font-mono mb-1 uppercase">ROLL</div>
+            <div className="w-16 h-16 rounded-full border border-white/10 flex items-center justify-center relative overflow-hidden bg-[#141417]">
               {/* Roll line indicator */}
               <div 
                 className="absolute w-12 h-0.5 bg-amber-400 transition-transform duration-200"
                 style={{ transform: `rotate(${sensors.roll}deg)` }}
               />
-              <div className="absolute inset-x-0 h-0.5 bg-dashed bg-slate-800 top-1/2" />
+              <div className="absolute inset-x-0 h-0.5 bg-dashed bg-[#2a2a2f] top-1/2" />
               <span className="z-10 text-[11px] font-mono text-amber-300 font-semibold">{sensors.roll.toFixed(1)}°</span>
             </div>
           </div>
 
           {/* Yaw */}
           <div className="text-center relative">
-            <div className="text-[10px] text-slate-400 font-mono mb-1 uppercase">YAW</div>
-            <div className="w-16 h-16 rounded-full border border-white/10 flex items-center justify-center relative overflow-hidden bg-slate-950">
+            <div className="text-[10px] text-[#9a9aa2] font-mono mb-1 uppercase">YAW</div>
+            <div className="w-16 h-16 rounded-full border border-white/10 flex items-center justify-center relative overflow-hidden bg-[#141417]">
               {/* Compass marker */}
               <div 
                 className="absolute text-[8px] text-red-500 transition-transform duration-200 font-mono"
@@ -94,29 +94,29 @@ export default function SensorReadout({
                 ▲
               </div>
               <span className="text-[11px] font-mono text-white font-bold">{sensors.yaw.toFixed(0)}°</span>
-              <span className="absolute bottom-1 text-[9px] font-mono text-slate-400 font-semibold">{getCompassDirection(sensors.yaw)}</span>
+              <span className="absolute bottom-1 text-[9px] font-mono text-[#9a9aa2] font-semibold">{getCompassDirection(sensors.yaw)}</span>
             </div>
           </div>
         </div>
 
         {/* Telemetry numbers */}
         <div className="grid grid-cols-2 gap-3 mt-4 text-xs font-mono">
-          <div className="bg-slate-950/40 p-2.5 rounded-xl border border-white/10 leading-tight">
-            <div className="text-[10px] text-slate-400 uppercase">GPS Precision</div>
+          <div className="bg-[#0a0a0c]/90 p-2.5 rounded-xl border border-white/10 leading-tight">
+            <div className="text-[10px] text-[#9a9aa2] uppercase">GPS Precision</div>
             <div className="text-white font-bold mt-1">{sensors.gpsAccuracyMothers.toFixed(2)}m (RTK)</div>
           </div>
-          <div className="bg-slate-950/40 p-2.5 rounded-xl border border-white/10 leading-tight">
-            <div className="text-[10px] text-slate-400 uppercase">Baro Altitude</div>
-            <div className="text-cyan-400 font-bold mt-1">{sensors.barometerAltitudeM.toFixed(1)}m</div>
+          <div className="bg-[#0a0a0c]/90 p-2.5 rounded-xl border border-white/10 leading-tight">
+            <div className="text-[10px] text-[#9a9aa2] uppercase">Baro Altitude</div>
+            <div className="text-[#ffd02c] font-bold mt-1">{sensors.barometerAltitudeM.toFixed(1)}m</div>
           </div>
         </div>
       </div>
 
       {/* 2. UAV Climate Control & Thermal Stability */}
-      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden">
+      <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden">
         <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
           <div className="flex items-center space-x-2">
-            <Thermometer className="w-5 h-5 text-cyan-400" />
+            <Thermometer className="w-5 h-5 text-[#ffd02c]" />
             <h3 className="font-semibold text-white tracking-wide text-sm uppercase font-display">Thermal Control</h3>
           </div>
           <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
@@ -130,31 +130,31 @@ export default function SensorReadout({
 
         {/* Climate Telemetry */}
         <div className="grid grid-cols-2 gap-3 mb-4 text-xs font-mono">
-          <div className="bg-slate-950/40 p-3 rounded-xl border border-white/10 flex items-center justify-between">
+          <div className="bg-[#0a0a0c]/90 p-3 rounded-xl border border-white/10 flex items-center justify-between">
             <div>
-              <div className="text-[10px] text-slate-400 uppercase">Battery Temp</div>
+              <div className="text-[10px] text-[#9a9aa2] uppercase">Battery Temp</div>
               <div className={`text-sm font-bold mt-0.5 ${
-                climate.batteryTempC > 45 ? 'text-red-400' : climate.batteryTempC < 15 ? 'text-cyan-400' : 'text-emerald-300'
+                climate.batteryTempC > 45 ? 'text-red-400' : climate.batteryTempC < 15 ? 'text-[#ffd02c]' : 'text-emerald-300'
               }`}>{climate.batteryTempC.toFixed(1)}°C</div>
             </div>
             {climate.batteryTempC > 45 ? (
               <span className="p-1 px-1.5 rounded bg-red-400/10 text-red-500 text-[10px] uppercase font-bold text-center">Hot</span>
             ) : climate.batteryTempC < 15 ? (
-              <span className="p-1 px-1.5 rounded bg-cyan-400/15 text-cyan-400 text-[10px] uppercase font-bold text-center">Cold</span>
+              <span className="p-1 px-1.5 rounded bg-[#ffd02c]/10 text-[#ffd02c] text-[10px] uppercase font-bold text-center">Cold</span>
             ) : (
               <span className="p-1 px-1.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] uppercase font-bold text-center">Optimal</span>
             )}
           </div>
 
-          <div className="bg-slate-950/40 p-3 rounded-xl border border-white/10">
-            <div className="text-[10px] text-slate-400 uppercase">Air Density</div>
+          <div className="bg-[#0a0a0c]/90 p-3 rounded-xl border border-white/10">
+            <div className="text-[10px] text-[#9a9aa2] uppercase">Air Density</div>
             <div className="text-white text-sm font-bold mt-0.5">{climate.airDensityKgM3.toFixed(3)} kg/m³</div>
           </div>
         </div>
 
         {/* Climate Actuator Actions */}
         <div className="space-y-3">
-          <div className="text-[10px] text-slate-400 font-mono tracking-wider uppercase">Actuator Manual Overrides</div>
+          <div className="text-[10px] text-[#9a9aa2] font-mono tracking-wider uppercase">Actuator Manual Overrides</div>
           
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -163,7 +163,7 @@ export default function SensorReadout({
               className={`p-2.5 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 border transition-all cursor-pointer ${
                 climate.heaterActive 
                   ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 shadow-md' 
-                  : 'bg-slate-950/45 border-white/10 text-slate-400 hover:text-white hover:bg-white/5'
+                  : 'bg-[#141417]/45 border-white/10 text-[#9a9aa2] hover:text-white hover:bg-white/10'
               }`}
             >
               <Flame className={`w-3.5 h-3.5 ${climate.heaterActive ? 'animate-pulse text-amber-400' : ''}`} />
@@ -175,11 +175,11 @@ export default function SensorReadout({
               onClick={onToggleCooler}
               className={`p-2.5 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 border transition-all cursor-pointer ${
                 climate.coolerActive 
-                  ? 'bg-cyan-500/20 border-cyan-500/30 text-cyan-400 shadow-md' 
-                  : 'bg-slate-950/45 border-white/10 text-slate-400 hover:text-white hover:bg-white/5'
+                  ? 'bg-[#ffd02c]/10 border-[#ffd02c]/30 text-[#ffd02c] shadow-md' 
+                  : 'bg-[#141417]/45 border-white/10 text-[#9a9aa2] hover:text-white hover:bg-white/10'
               }`}
             >
-              <Fan className={`w-3.5 h-3.5 ${climate.coolerActive ? 'animate-spin text-cyan-400' : ''}`} />
+              <Fan className={`w-3.5 h-3.5 ${climate.coolerActive ? 'animate-spin text-[#ffd02c]' : ''}`} />
               <span>Fans: {climate.coolerActive ? 'ON' : 'OFF'}</span>
             </button>
           </div>
@@ -187,8 +187,8 @@ export default function SensorReadout({
 
         {/* Wind Stability Slider */}
         <div className="mt-4 border-t border-white/10 pt-3">
-          <div className="flex justify-between items-center text-[10px] font-mono mb-1.5 text-slate-400">
-            <span className="flex items-center uppercase"><Wind className="w-3 h-3 mr-1 text-cyan-400" /> Wind Turbulence Rate</span>
+          <div className="flex justify-between items-center text-[10px] font-mono mb-1.5 text-[#9a9aa2]">
+            <span className="flex items-center uppercase"><Wind className="w-3 h-3 mr-1 text-[#ffd02c]" /> Wind Turbulence Rate</span>
             <span className="text-white font-bold">{climate.windSpeedKnots.toFixed(1)} Knots</span>
           </div>
           <input
@@ -199,9 +199,9 @@ export default function SensorReadout({
             step="0.5"
             value={simulationWindSpeed}
             onChange={(e) => onChangeWindSpeed(parseFloat(e.target.value))}
-            className="w-full h-1 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+            className="w-full h-1 bg-[#2a2a2f] rounded-lg appearance-none cursor-pointer accent-[#ffd02c]"
           />
-          <div className="flex justify-between text-[8px] text-slate-500 font-mono mt-0.5">
+          <div className="flex justify-between text-[8px] text-[#7c7c84] font-mono mt-0.5">
             <span>0 KT (CALM)</span>
             <span>20 KT (MOD)</span>
             <span>45 KT (SEVERE GALE)</span>
@@ -210,10 +210,10 @@ export default function SensorReadout({
       </div>
 
       {/* 3. Encrypted Communication Configuration */}
-      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden">
+      <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden">
         <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
           <div className="flex items-center space-x-2">
-            <Shield className="w-5 h-5 text-cyan-400" />
+            <Shield className="w-5 h-5 text-[#ffd02c]" />
             <h3 className="font-semibold text-white tracking-wide text-sm uppercase font-display">Secure Comms</h3>
           </div>
           <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
@@ -227,22 +227,22 @@ export default function SensorReadout({
 
         {/* Security Parameters */}
         <div className="space-y-4">
-          <div className="bg-slate-950/40 border border-white/10 rounded-xl p-3 leading-tight backdrop-blur-sm">
-            <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 uppercase">
+          <div className="bg-[#0a0a0c]/90 border border-white/10 rounded-xl p-3 leading-tight backdrop-blur-sm">
+            <div className="flex items-center justify-between text-[10px] font-mono text-[#7c7c84] uppercase">
               <span>Active Protocol</span>
               <span className={`flex items-center text-xs font-bold leading-none ${signal.isEncrypted ? 'text-emerald-400' : 'text-red-400'}`}>
                 {signal.isEncrypted ? <ShieldCheck className="w-3.5 h-3.5 mr-1" /> : null}
                 {signal.protocol}
               </span>
             </div>
-            <div className="text-xs text-white font-mono font-semibold mt-2.5 break-all bg-slate-950/80 p-2 rounded-lg border border-white/5">
-              <span className="text-cyan-400 text-[10px] block mr-1 uppercase select-none">AES-256 HMAC Key:</span>
-              <span className="text-cyan-300">{signal.encryptionKey || "NULL (DEFAULT_UNSAFE)"}</span>
+            <div className="text-xs text-white font-mono font-semibold mt-2.5 break-all bg-[#0a0a0c]/95 p-2 rounded-lg border border-white/5">
+              <span className="text-[#ffd02c] text-[10px] block mr-1 uppercase select-none">AES-256 HMAC Key:</span>
+              <span className="text-[#ffd02c]">{signal.encryptionKey || "NULL (DEFAULT_UNSAFE)"}</span>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[10px] text-slate-400 font-mono tracking-wider uppercase block">Hex Encryption Key Input</label>
+            <label className="text-[10px] text-[#9a9aa2] font-mono tracking-wider uppercase block">Hex Encryption Key Input</label>
             <div className="flex space-x-2">
               <input
                 id="input-encryption-hex"
@@ -251,10 +251,10 @@ export default function SensorReadout({
                 defaultValue={signal.encryptionKey}
                 onChange={(e) => onSetEncryptionKey(e.target.value)}
                 maxLength={64}
-                className="flex-1 bg-slate-950/40 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-cyan-500/45 transition-all"
+                className="flex-1 bg-[#0a0a0c]/90 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-[#ffd02c]/45 transition-all"
               />
             </div>
-            <span className="text-[9px] text-slate-500 font-mono leading-tight block">
+            <span className="text-[9px] text-[#7c7c84] font-mono leading-tight block">
               Changing this hex key alters the dynamic encryption SHA256 block hash calculated for Spring Boot payloads.
             </span>
           </div>
@@ -264,8 +264,8 @@ export default function SensorReadout({
         <div className="mt-4 pt-3 border-t border-white/10">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <div className="text-[10.5px] font-mono text-slate-300 font-semibold uppercase">LIDAR Obstacle Scan</div>
-              <div className="text-[10px] text-slate-400 font-mono">
+              <div className="text-[10.5px] font-mono text-[#d1d1d6] font-semibold uppercase">LIDAR Obstacle Scan</div>
+              <div className="text-[10px] text-[#9a9aa2] font-mono">
                 {sensors.obstacleAvoidanceActive ? 'AVOIDANCE MODE ACTIVE' : 'GRID MONITORED SAFE'}
               </div>
             </div>

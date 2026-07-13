@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, generateMarker, setHome, getHome, getMode, getTravelLog, getGeofence, setGeofence, clearGeofence, ApiError } from './api';
+import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, disarmDrone, takeoffDrone, landDrone, manualNudge, ManualNudgeCmd, generateMarker, setHome, getHome, getMode, getTravelLog, getGeofence, setGeofence, clearGeofence, ApiError } from './api';
 // NOTE: We import our api functions but rename the local startMission
 // to avoid conflict with the imported one
 import { startMission as ros2Start } from './api';
@@ -15,6 +15,7 @@ import SensorReadout from './components/SensorReadout';
 import TelemetryTerminal, { TelemetryLogStream, TelemetryInsights } from './components/TelemetryTerminal';
 import CameraFeed from './components/CameraFeed';
 import IMUGraph from './components/IMUGraph';
+import FlightTestBench from './components/FlightTestBench';
 import ConnectivityBanner from './components/ConnectivityBanner';
 import WaypointList from './components/WaypointList';
 import DroneProfilePanel from './components/DroneProfilePanel';
@@ -78,6 +79,7 @@ export default function App() {
   // ── Core location state ─────────────────────────────
   const [startLoc,   setStartLoc]   = useState<LatLng>(() => readCachedPosition() ?? { lat: 9.965800, lng: 76.242100 });
   const [destLoc,    setDestLoc]    = useState<LatLng | null>({ lat: 9.973500, lng: 76.248500 });
+  const [activePage, setActivePage] = useState<'mission' | 'testbench'>('mission');
   const [dronePos,   setDronePos]   = useState(() => {
     const cached = readCachedPosition();
     return cached ? { ...cached, heading: 0 } : { lat: 9.965800, lng: 76.242100, heading: 0 };
@@ -423,13 +425,46 @@ export default function App() {
     if (wsPosition.lat === 0 && wsPosition.lon === 0) return;
     setDronePos({ lat: wsPosition.lat, lng: wsPosition.lon, heading: wsPosition.heading });
     setSensors(prev => ({ ...prev, barometerAltitudeM: wsPosition.altitude }));
-    if (flightState === FlightState.EN_ROUTE) {
-      setTraveledPath(prev => {
-        const next = [...prev, { lat: wsPosition.lat, lng: wsPosition.lon }];
-        return next.length > MAX_TRAVELED_POINTS ? next.slice(next.length - MAX_TRAVELED_POINTS) : next;
-      });
-    }
   }, [wsPosition, wsConnected, flightState]);
+
+  // ── Traveled trail (the red line) ──────────────────────────────────
+  // Fed from dronePos itself, not from the WebSocket message, so the line
+  // still draws when the socket is down and REST polling is the position
+  // source. Points are deduped to >=0.5m spacing.
+  const lastTrailPointRef = useRef<LatLng | null>(null);
+  useEffect(() => {
+    if (flightState !== FlightState.EN_ROUTE) return;
+    const last = lastTrailPointRef.current;
+    if (last) {
+      const dLat = (dronePos.lat - last.lat) * 111320;
+      const dLng = (dronePos.lng - last.lng) * 111320 * Math.cos((dronePos.lat * Math.PI) / 180);
+      if (Math.hypot(dLat, dLng) < 0.5) return;
+    }
+    lastTrailPointRef.current = { lat: dronePos.lat, lng: dronePos.lng };
+    setTraveledPath(prev => {
+      const next = [...prev, { lat: dronePos.lat, lng: dronePos.lng }];
+      return next.length > MAX_TRAVELED_POINTS ? next.slice(next.length - MAX_TRAVELED_POINTS) : next;
+    });
+  }, [dronePos, flightState]);
+
+  // ── Auto-ready after a mission ends ────────────────────────────────
+  // Once the drone is on the ground after MISSION_COMPLETE (or an abort),
+  // reset the ROS2 state machine and re-open the Launch button — the
+  // operator shouldn't have to hunt for a reset to fly again. The trail
+  // stays on screen until the next launch clears it.
+  useEffect(() => {
+    if (flightState !== FlightState.LANDED_SAFE && flightState !== FlightState.EMERGENCY_LANDING) return;
+    if (droneStatus !== 'LANDED' && droneStatus !== 'CONNECTED') return;
+    const timer = setTimeout(async () => {
+      try {
+        await resetMission();
+      } catch { /* backend unreachable — local re-arm only */ }
+      lastTrailPointRef.current = null;
+      setFlightState(FlightState.IDLE);
+      addNewLogEntry(FlightState.IDLE, 'Mission closed out — ready to launch the next one.');
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [flightState, droneStatus]);
 
   // ── Trail restore after mid-flight reconnect ────────────────────────
   // If the page loads (or the backend comes back) while a mission is already
@@ -547,6 +582,55 @@ export default function App() {
         addNewLogEntry(flightState, `ROS2: Arm rejected — ${e.message}`);
       } else {
         addNewLogEntry(flightState, "ROS2: Backend not reachable — cannot arm.");
+      }
+    }
+  };
+
+  const disarmDroneHandler = async () => {
+    try {
+      await disarmDrone();
+      addNewLogEntry(flightState, "ROS2: DISARM command sent to drone.");
+    } catch (e) {
+      if (e instanceof ApiError) {
+        addNewLogEntry(flightState, `ROS2: Disarm rejected — ${e.message}`);
+      } else {
+        addNewLogEntry(flightState, "ROS2: Backend not reachable — cannot disarm.");
+      }
+    }
+  };
+
+  const takeoffDroneHandler = async () => {
+    try {
+      await takeoffDrone();
+      addNewLogEntry(flightState, "ROS2: TAKEOFF command sent (manual bench control).");
+    } catch (e) {
+      addNewLogEntry(flightState, e instanceof ApiError
+        ? `ROS2: Takeoff rejected — ${e.message}`
+        : "ROS2: Backend not reachable — cannot take off.");
+    }
+  };
+
+  const landDroneHandler = async () => {
+    try {
+      await landDrone();
+      addNewLogEntry(flightState, "ROS2: LAND command sent (manual bench control).");
+    } catch (e) {
+      addNewLogEntry(flightState, e instanceof ApiError
+        ? `ROS2: Land rejected — ${e.message}`
+        : "ROS2: Backend not reachable — cannot land.");
+    }
+  };
+
+  // Manual directional nudges are fired rapidly while a Test Bench button
+  // is held -- deliberately silent on success (no log spam per nudge) and
+  // only logs a REJECTION, so a genuine gate failure (mission active, not
+  // armed) is still visible without flooding the telemetry log.
+  const manualNudgeHandler = async (cmd: ManualNudgeCmd) => {
+    try {
+      await manualNudge(cmd);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        addNewLogEntry(flightState, `ROS2: Manual ${cmd} rejected — ${e.message}`);
       }
     }
   };
@@ -744,7 +828,7 @@ export default function App() {
 
   // ── Render ───────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-100 font-sans selection:bg-cyan-500 selection:text-slate-950 pb-14 relative overflow-hidden">
+    <div className="min-h-screen bg-[#0a0a0c] text-white font-sans selection:bg-[#ffd02c] selection:text-black pb-14 relative overflow-hidden">
 
       {/* Background grid */}
       <div className="absolute inset-0 z-0 opacity-15 pointer-events-none">
@@ -759,31 +843,50 @@ export default function App() {
       </div>
 
       {/* Header */}
-      <header className="border-b border-white/10 bg-slate-950/40 sticky top-0 z-40 backdrop-blur-md">
+      <header className="border-b border-white/10 bg-[#0a0a0c]/90 sticky top-0 z-40 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-cyan-500 rounded flex items-center justify-center font-bold text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.4)]">
+            <div className="w-8 h-8 bg-[#ffd02c] rounded flex items-center justify-center font-bold text-black shadow-[0_0_15px_rgba(255,208,44,0.4)]">
               UAV
             </div>
             <div>
               <h1 className="text-sm font-bold tracking-tight text-white uppercase flex items-center">
                 SkyNav Avionics Systems
-                <span className="text-cyan-400 text-[9px] font-mono ml-2 bg-white/5 px-2 py-0.5 rounded border border-white/10">v4.2.0-STABLE</span>
+                <span className="text-[#ffd02c] text-[9px] font-mono ml-2 bg-[#141417] px-2 py-0.5 rounded border border-white/10">v4.2.0-STABLE</span>
               </h1>
-              <p className="text-[10px] text-slate-400 font-mono">Autonomous Drone Mission Control · LiDAR · ROS2 FastAPI Bridge</p>
+              <p className="text-[10px] text-[#9a9aa2] font-mono">Autonomous Drone Mission Control · LiDAR · ROS2 FastAPI Bridge</p>
             </div>
           </div>
           <div className="flex items-center space-x-2">
+            {/* Page switcher: Mission Control vs Flight Test Bench */}
+            <div className="flex items-center bg-[#141417] border border-white/10 rounded-full p-0.5 mr-1">
+              <button
+                onClick={() => setActivePage('mission')}
+                className={`text-[10px] font-mono uppercase tracking-wide px-3 py-1 rounded-full transition-all ${
+                  activePage === 'mission' ? 'bg-[#ffd02c] text-black font-bold' : 'text-[#9a9aa2] hover:text-white'
+                }`}
+              >
+                Mission
+              </button>
+              <button
+                onClick={() => setActivePage('testbench')}
+                className={`text-[10px] font-mono uppercase tracking-wide px-3 py-1 rounded-full transition-all ${
+                  activePage === 'testbench' ? 'bg-[#1ebcbd] text-black font-bold' : 'text-[#9a9aa2] hover:text-white'
+                }`}
+              >
+                Test Bench
+              </button>
+            </div>
             {/* ROS2 connection indicator in header */}
             <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full border flex items-center ${
               ros2Connected
                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                : 'bg-white/5 border-white/10 text-slate-400'
+                : 'bg-[#141417] border-white/10 text-[#9a9aa2]'
             }`}>
               <span className={`w-1.5 h-1.5 rounded-full mr-2 ${ros2Connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
               {ros2Connected ? 'ROS2 CONNECTED' : 'SIM MODE'}
             </span>
-            <span className="text-[10px] font-mono shrink-0 px-2.5 py-1 bg-white/5 border border-white/10 text-cyan-400 rounded-full flex items-center">
+            <span className="text-[10px] font-mono shrink-0 px-2.5 py-1 bg-[#141417] border border-white/10 text-[#ffd02c] rounded-full flex items-center">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2 animate-pulse" />
               PORTAL SECURE
             </span>
@@ -796,6 +899,21 @@ export default function App() {
 
         <ConnectivityBanner nodeStatus={nodeStatus} wsConnected={wsConnected} />
 
+        {activePage === 'testbench' ? (
+          <FlightTestBench
+            imu={imu}
+            position={wsPosition}
+            nodeStatus={nodeStatus}
+            wsConnected={wsConnected}
+            droneStatus={droneStatus}
+            onArm={armDroneHandler}
+            onDisarm={disarmDroneHandler}
+            onTakeoff={takeoffDroneHandler}
+            onLand={landDroneHandler}
+            onManualNudge={manualNudgeHandler}
+          />
+        ) : (
+        <>
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
           <div className="lg:col-span-8 flex flex-col gap-6">
@@ -905,6 +1023,8 @@ export default function App() {
             onChangeWindSpeed={setSimulationWindSpeed}
           />
         </section>
+        </>
+        )}
 
       </main>
     </div>

@@ -70,22 +70,22 @@ export default function IMUGraph({ imu, ros2Connected }: IMUGraphProps) {
   const latest = samples[samples.length - 1];
 
   return (
-    <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl">
+    <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-2">
-          <Activity className="w-4 h-4 text-cyan-400" />
+          <Activity className="w-4 h-4 text-[#ffd02c]" />
           <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">
             IMU Stability
           </h3>
           {!ros2Connected && (
-            <span className="text-[9px] text-slate-500 font-mono uppercase">(no live IMU — sim mode)</span>
+            <span className="text-[9px] text-[#7c7c84] font-mono uppercase">(no live IMU — sim mode)</span>
           )}
         </div>
-        <div className="flex bg-slate-950/60 p-0.5 border border-white/10 rounded-lg">
+        <div className="flex bg-[#1c1c20] p-0.5 border border-white/10 rounded-lg">
           <button
             onClick={() => setView('attitude')}
             className={`px-2.5 py-1 rounded text-[10px] font-mono cursor-pointer ${
-              view === 'attitude' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'text-slate-400'
+              view === 'attitude' ? 'bg-[#ffd02c]/10 text-[#ffd02c] border border-[#ffd02c]/30' : 'text-[#9a9aa2]'
             }`}
           >
             Attitude
@@ -93,7 +93,7 @@ export default function IMUGraph({ imu, ros2Connected }: IMUGraphProps) {
           <button
             onClick={() => setView('rates')}
             className={`px-2.5 py-1 rounded text-[10px] font-mono cursor-pointer ${
-              view === 'rates' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'text-slate-400'
+              view === 'rates' ? 'bg-[#ffd02c]/10 text-[#ffd02c] border border-[#ffd02c]/30' : 'text-[#9a9aa2]'
             }`}
           >
             Rates
@@ -101,7 +101,7 @@ export default function IMUGraph({ imu, ros2Connected }: IMUGraphProps) {
         </div>
       </div>
 
-      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="w-full h-32 bg-slate-950/40 rounded-lg border border-white/5">
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="w-full h-32 bg-[#0a0a0c]/90 rounded-lg border border-white/5">
         <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="#334155" strokeWidth="0.5" />
         {series.map(s => (
           <polyline
@@ -124,7 +124,7 @@ export default function IMUGraph({ imu, ros2Connected }: IMUGraphProps) {
             </span>
           ))}
         </div>
-        <span className="flex items-center gap-1 text-slate-500">
+        <span className="flex items-center gap-1 text-[#7c7c84]">
           <Gauge className="w-3 h-3" /> last {WINDOW_SEC}s
         </span>
       </div>

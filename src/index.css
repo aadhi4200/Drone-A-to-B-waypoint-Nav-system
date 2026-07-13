@@ -2,28 +2,38 @@
 @import "tailwindcss";
 
 @theme {
+  /* DJI-controller look (ref: dribbble 21827619) — grotesk pairing;
+     Space Grotesk stands in for the shot's Aktiv Grotesk */
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-/* Custom styles for high-tech telemetry dashboard scrollbars & animations */
+/* Dark scrollbars, DJI-yellow hover */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.3);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.14);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(6, 182, 212, 0.3);
+  background: rgba(255, 208, 44, 0.45);
+}
+
+/* Deep-navy holographic basemap tint (ref: dribbble 25711529) — recolors
+   the grayscale dark-matter tiles into the shot's blue-navy terrain.
+   Targets only the tile canvas; markers/overlays are sibling DOM nodes
+   and keep their true colors. */
+#uav-tactical-map-panel .maplibregl-canvas {
+  filter: sepia(0.9) hue-rotate(175deg) saturate(2.2) brightness(0.8) contrast(1.05);
 }
 
 @keyframes scanline {

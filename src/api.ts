@@ -151,6 +151,21 @@ export async function disarmDrone() {
   return post('/drone/disarm');
 }
 
+export async function takeoffDrone() {
+  return post('/drone/takeoff');
+}
+
+export async function landDrone() {
+  return post('/drone/land');
+}
+
+export type ManualNudgeCmd =
+  | 'FWD' | 'BACK' | 'LEFT' | 'RIGHT' | 'UP' | 'DOWN' | 'YAW_LEFT' | 'YAW_RIGHT' | 'HOLD';
+
+export async function manualNudge(cmd: ManualNudgeCmd) {
+  return post(`/drone/manual/${cmd}`);
+}
+
 export async function getMissionStatus(): Promise<MissionStatus> {
   const res = await fetch(`${API_BASE}/mission/status`);
   if (!res.ok) throw new Error(`GET /mission/status failed: ${res.status}`);

@@ -27,8 +27,8 @@ function describeReason(reason: string): string {
 export default function ConnectivityBanner({ nodeStatus, wsConnected }: ConnectivityBannerProps) {
   if (!wsConnected) {
     return (
-      <div className="p-3 bg-slate-900/60 border border-white/10 rounded-xl text-slate-400 text-[10.5px] font-mono flex items-center gap-2">
-        <ShieldAlert className="w-4 h-4 shrink-0 text-slate-500" />
+      <div className="p-3 bg-[#141417]/60 border border-white/10 rounded-xl text-[#9a9aa2] text-[10.5px] font-mono flex items-center gap-2">
+        <ShieldAlert className="w-4 h-4 shrink-0 text-[#7c7c84]" />
         Dashboard link down — monitoring only, this does not affect the drone. Reconnecting...
       </div>
     );
@@ -36,8 +36,8 @@ export default function ConnectivityBanner({ nodeStatus, wsConnected }: Connecti
 
   if (!nodeStatus) {
     return (
-      <div className="p-3 bg-slate-900/60 border border-white/10 rounded-xl text-slate-400 text-[10.5px] font-mono flex items-center gap-2">
-        <ShieldAlert className="w-4 h-4 shrink-0 text-slate-500 animate-pulse" />
+      <div className="p-3 bg-[#141417]/60 border border-white/10 rounded-xl text-[#9a9aa2] text-[10.5px] font-mono flex items-center gap-2">
+        <ShieldAlert className="w-4 h-4 shrink-0 text-[#7c7c84] animate-pulse" />
         Waiting for connectivity status...
       </div>
     );

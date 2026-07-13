@@ -19,39 +19,39 @@ export default function WaypointList({
   speedMs, onSetSpeedMs, mode, abortAltitudeM, disabled,
 }: WaypointListProps) {
   return (
-    <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl space-y-3">
+    <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <MapPin className="w-4 h-4 text-cyan-400" />
+          <MapPin className="w-4 h-4 text-[#ffd02c]" />
           <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">
             Mission Stops
           </h3>
         </div>
-        <span className="text-[9px] text-slate-500 font-mono uppercase">{waypoints.length} stop(s)</span>
+        <span className="text-[9px] text-[#7c7c84] font-mono uppercase">{waypoints.length} stop(s)</span>
       </div>
 
       {waypoints.length === 0 ? (
-        <div className="text-[10px] text-slate-500 font-mono py-2 text-center">
+        <div className="text-[10px] text-[#7c7c84] font-mono py-2 text-center">
           Click "Dest Coords" mode, then click the map to add a delivery stop.
         </div>
       ) : (
         <div className="space-y-2">
           {waypoints.map(wp => (
-            <div key={wp.label} className="bg-slate-950/40 p-2.5 rounded-xl border border-white/10 space-y-1.5">
+            <div key={wp.label} className="bg-[#0a0a0c]/90 p-2.5 rounded-xl border border-white/10 space-y-1.5">
               <div className="flex items-center justify-between text-[10.5px] font-mono">
-                <span className="text-cyan-300 font-bold">
-                  {wp.label} <span className="text-slate-500 font-normal">({wp.lat.toFixed(5)}, {wp.lng.toFixed(5)})</span>
+                <span className="text-[#ffd02c] font-bold">
+                  {wp.label} <span className="text-[#7c7c84] font-normal">({wp.lat.toFixed(5)}, {wp.lng.toFixed(5)})</span>
                 </span>
                 <button
                   onClick={() => onRemove(wp.label)}
-                  className="text-slate-500 hover:text-red-400 cursor-pointer"
+                  className="text-[#7c7c84] hover:text-red-400 cursor-pointer"
                   title="Remove stop"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <label className="flex items-center gap-1.5 text-[9.5px] font-mono text-slate-400">
+                <label className="flex items-center gap-1.5 text-[9.5px] font-mono text-[#9a9aa2]">
                   ALT (m)
                   <input
                     type="number"
@@ -60,9 +60,9 @@ export default function WaypointList({
                     max={abortAltitudeM}
                     value={wp.alt}
                     onChange={e => onUpdateAlt(wp.label, parseFloat(e.target.value) || 0)}
-                    className="w-16 bg-slate-900/60 border border-white/10 rounded px-1.5 py-0.5 text-white text-[10.5px]"
+                    className="w-16 bg-[#141417]/60 border border-white/10 rounded px-1.5 py-0.5 text-white text-[10.5px]"
                   />
-                  <span className="text-slate-600">/ max {abortAltitudeM}m</span>
+                  <span className="text-[#7c7c84]">/ max {abortAltitudeM}m</span>
                 </label>
 
                 {mode === 'sim' ? (
@@ -72,7 +72,7 @@ export default function WaypointList({
                     className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[9.5px] font-bold uppercase cursor-pointer border ${
                       wp.markerStatus === 'spawned'
                         ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                        : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed'
+                        : 'bg-[#ffd02c]/10 border-[#ffd02c]/30 text-[#ffd02c] hover:bg-[#ffd02c]/10 disabled:opacity-40 disabled:cursor-not-allowed'
                     }`}
                   >
                     <Sparkles className="w-3 h-3" />
@@ -93,9 +93,9 @@ export default function WaypointList({
       )}
 
       <div className="pt-2 border-t border-white/5">
-        <label className="flex items-center justify-between text-[9.5px] font-mono text-slate-400 uppercase mb-1">
-          <span className="flex items-center gap-1"><Gauge className="w-3 h-3 text-cyan-400" /> Mission max speed</span>
-          <span className="text-cyan-300 font-bold">{speedMs.toFixed(1)} m/s</span>
+        <label className="flex items-center justify-between text-[9.5px] font-mono text-[#9a9aa2] uppercase mb-1">
+          <span className="flex items-center gap-1"><Gauge className="w-3 h-3 text-[#ffd02c]" /> Mission max speed</span>
+          <span className="text-[#ffd02c] font-bold">{speedMs.toFixed(1)} m/s</span>
         </label>
         <input
           type="range"
@@ -104,7 +104,7 @@ export default function WaypointList({
           step={0.5}
           value={speedMs}
           onChange={e => onSetSpeedMs(parseFloat(e.target.value))}
-          className="w-full accent-cyan-500"
+          className="w-full accent-[#ffd02c]"
         />
       </div>
     </div>
