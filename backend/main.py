@@ -73,7 +73,12 @@ TARGET_ALTITUDE_M = 2.5
 # alike) self-abort via this exact check mid-climb, before ever reaching
 # home. 10.0m = 7.0m RTH climb + ~3m margin for transient setpoint overshoot
 # (observed up to ~8.3m actual against a 7.0m target in that same test).
-ABORT_ALTITUDE_M   = 10.0
+ABORT_ALTITUDE_M   = 15.0  # was 10.0 -- RTH cruises at 7m and WSL EKF
+                           # altitude drift (+2m seen live 2026-07-13 after a
+                           # 30s search spin) ate the 3m margin and false-
+                           # aborted a return-home; 15m keeps the net well
+                           # above RTH_ALTITUDE + drift while still catching
+                           # a real runaway climb
 DEFAULT_MAX_SPEED_MS = 3.0
 HOME_MISMATCH_THRESHOLD_M = 1000.0
 
