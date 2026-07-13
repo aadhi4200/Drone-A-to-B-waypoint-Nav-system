@@ -178,6 +178,16 @@ export default function MapPane({
   // read as "the whole map sliding away"). A visible button re-enables it.
   const followDroneRef = useRef(true);
   const [followPaused, setFollowPaused] = useState(false);
+  // Single source of truth for "which way the arrow points", shared by BOTH
+  // drone renderers (the real MapLibre marker AND the Simulation-tab radar
+  // SVG). Computed once per position update in the sync effect below and
+  // stored here so the radar view's JSX can read it purely, instead of
+  // reading raw dronePos.heading directly -- that raw compass heading is
+  // NOT the direction of travel (PX4 holds its takeoff yaw and crabs
+  // sideways in offboard mode, measured up to ~123deg off the actual
+  // travel direction), which is what made the radar-tab arrow look like it
+  // was pointing backwards/opposite the flight path.
+  const [displayHeadingDeg, setDisplayHeadingDeg] = useState(0);
   // Google-Maps-style arrow rotation: while the drone is MOVING, point the
   // arrow along its course over ground (direction of travel computed from
   // successive GPS fixes). PX4 holds its boot yaw during offboard transit
@@ -569,6 +579,12 @@ export default function MapPane({
     // map coordinate, with rotation stuck at whatever it was when orphaned.
     const droneMarkerIsLive = droneMarkerRef.current
       && document.body.contains(droneMarkerRef.current.getElement());
+    // Computed exactly once per position update (not per render, and not
+    // once per renderer) -- arrowRotationDeg mutates refs to track course
+    // over ground, so calling it more than once per tick would double-count
+    // samples.
+    const rot = arrowRotationDeg(dronePos);
+    setDisplayHeadingDeg(rot);
     if (!droneMarkerIsLive) {
       if (droneMarkerRef.current) {
         droneMarkerRef.current.remove();
@@ -580,7 +596,7 @@ export default function MapPane({
         <div id="maplibre-drone-wrapper" class="relative flex items-center justify-center h-10 w-10">
           <div class="absolute -inset-2.5 rounded-full border border-[#1ebcbd]/25"></div>
           <div class="absolute -inset-1 rounded-full border border-[#1ebcbd]/40 animate-ping"></div>
-          <div class="relative flex items-center justify-center p-2 rounded-full bg-[#0a1220] border-2 border-[#1ebcbd] shadow-[0_0_15px_rgba(30,188,189,0.6)] text-white font-bold h-10 w-10 origin-center transition-all" style="transform: rotate(${arrowRotationDeg(dronePos)}deg);">
+          <div class="relative flex items-center justify-center p-2 rounded-full bg-[#0a1220] border-2 border-[#1ebcbd] shadow-[0_0_15px_rgba(30,188,189,0.6)] text-white font-bold h-10 w-10 origin-center transition-all" style="transform: rotate(${rot}deg);">
             <div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid #ef4444;"></div>
             <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor" stroke="none">
               <path d="M12 2 L19.5 21 L12 16.6 L4.5 21 Z"/>
@@ -600,7 +616,7 @@ export default function MapPane({
     } else {
       animateDroneTo({ lat: dronePos.lat, lng: dronePos.lng });
       if (droneRotateNodeRef.current) {
-        droneRotateNodeRef.current.style.transform = `rotate(${arrowRotationDeg(dronePos)}deg)`;
+        droneRotateNodeRef.current.style.transform = `rotate(${rot}deg)`;
       }
     }
 
@@ -1232,7 +1248,7 @@ export default function MapPane({
               {/* Dynamic Flight Drone Copter representation */}
               <g className="transition-all duration-200">
                 <g
-                  transform={`translate(${lngToX(dronePos.lng) - 50}px, ${latToY(dronePos.lat) - 50}px) rotate(${dronePos.heading}deg) scale(0.85)`}
+                  transform={`translate(${lngToX(dronePos.lng) - 50}px, ${latToY(dronePos.lat) - 50}px) rotate(${displayHeadingDeg}deg) scale(0.85)`}
                   className="origin-center"
                 >
                   {/* Blinking radio range aura */}

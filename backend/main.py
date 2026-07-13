@@ -73,7 +73,9 @@ TARGET_ALTITUDE_M = 2.5
 # alike) self-abort via this exact check mid-climb, before ever reaching
 # home. 10.0m = 7.0m RTH climb + ~3m margin for transient setpoint overshoot
 # (observed up to ~8.3m actual against a 7.0m target in that same test).
-ABORT_ALTITUDE_M   = 15.0  # was 10.0 -- RTH cruises at 7m and WSL EKF
+ABORT_ALTITUDE_M    = 15.0
+ALT_ABORT_DEBOUNCE_S = 0.3  # must read over the ceiling continuously for
+                            # this long before the safety abort fires  # was 10.0 -- RTH cruises at 7m and WSL EKF
                            # altitude drift (+2m seen live 2026-07-13 after a
                            # 30s search spin) ate the 3m margin and false-
                            # aborted a return-home; 15m keeps the net well
@@ -247,6 +249,7 @@ def start():
     _require_all_clear()
     if ros_node:
         ros_node.alt_abort_triggered = False
+        ros_node._alt_over_since   = None
         ros_node.mission_state = "IDLE"
         msg = String(); msg.data = "START"
         ros_node.cmd_pub.publish(msg)
@@ -637,6 +640,7 @@ class BridgeNode(Node):
         self.geofence_push_confirmed = False
         self._geofence_timer = None
         self.alt_abort_triggered = False
+        self._alt_over_since   = None
         self.home_lat = self.home_lon = None
 
         self.latest_frame  = None
@@ -824,14 +828,28 @@ class BridgeNode(Node):
         # consumer (WebSocket push, REST status, travel log) gets compass.
         self.heading = (90.0 - math.degrees(math.atan2(siny, cosy))) % 360
 
-        if self.altitude >= ABORT_ALTITUDE_M and not self.alt_abort_triggered:
-            self.alt_abort_triggered = True
-            self.mission_state = "MISSION_ABORT"
-            push_from_ros_thread({"type": "mission_state", "mission_state": "MISSION_ABORT"})
-            self.get_logger().warn(
-                f"SAFETY: altitude {self.altitude:.2f}m >= {ABORT_ALTITUDE_M}m limit — aborting mission")
-            abort_msg = String(); abort_msg.data = "ABORT"
-            self.cmd_pub.publish(abort_msg)
+        # Debounced trigger: reproduced live twice (2026-07-13, two
+        # different worlds) a ONE-SAMPLE EKF altitude glitch after
+        # re-arming post-landing -- e.g. 4.1m jumping to 18.0m within a
+        # single odom tick, not a real climb. A genuine runaway still stays
+        # over the ceiling on the next several samples (odom publishes at
+        # ~30-50Hz here, so this costs at most a couple hundred ms of real
+        # safety response time) -- a lone glitch does not.
+        now = time.monotonic()
+        if self.altitude >= ABORT_ALTITUDE_M:
+            if self._alt_over_since is None:
+                self._alt_over_since = now
+            elif not self.alt_abort_triggered and (now - self._alt_over_since) >= ALT_ABORT_DEBOUNCE_S:
+                self.alt_abort_triggered = True
+                self.mission_state = "MISSION_ABORT"
+                push_from_ros_thread({"type": "mission_state", "mission_state": "MISSION_ABORT"})
+                self.get_logger().warn(
+                    f"SAFETY: altitude {self.altitude:.2f}m >= {ABORT_ALTITUDE_M}m limit "
+                    f"for {ALT_ABORT_DEBOUNCE_S}s — aborting mission")
+                abort_msg = String(); abort_msg.data = "ABORT"
+                self.cmd_pub.publish(abort_msg)
+        else:
+            self._alt_over_since = None
 
     def _imu_cb(self, msg: Imu):
         q = msg.orientation
