@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, generateMarker, setHome, getHome, getMode, getTravelLog, getGeofence, setGeofence, clearGeofence, ApiError } from './api';
+import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, disarmDrone, generateMarker, setHome, getHome, getMode, getTravelLog, getGeofence, setGeofence, clearGeofence, ApiError } from './api';
 // NOTE: We import our api functions but rename the local startMission
 // to avoid conflict with the imported one
 import { startMission as ros2Start } from './api';
@@ -15,6 +15,7 @@ import SensorReadout from './components/SensorReadout';
 import TelemetryTerminal, { TelemetryLogStream, TelemetryInsights } from './components/TelemetryTerminal';
 import CameraFeed from './components/CameraFeed';
 import IMUGraph from './components/IMUGraph';
+import FlightTestBench from './components/FlightTestBench';
 import ConnectivityBanner from './components/ConnectivityBanner';
 import WaypointList from './components/WaypointList';
 import DroneProfilePanel from './components/DroneProfilePanel';
@@ -78,6 +79,7 @@ export default function App() {
   // ── Core location state ─────────────────────────────
   const [startLoc,   setStartLoc]   = useState<LatLng>(() => readCachedPosition() ?? { lat: 9.965800, lng: 76.242100 });
   const [destLoc,    setDestLoc]    = useState<LatLng | null>({ lat: 9.973500, lng: 76.248500 });
+  const [activePage, setActivePage] = useState<'mission' | 'testbench'>('mission');
   const [dronePos,   setDronePos]   = useState(() => {
     const cached = readCachedPosition();
     return cached ? { ...cached, heading: 0 } : { lat: 9.965800, lng: 76.242100, heading: 0 };
@@ -584,6 +586,19 @@ export default function App() {
     }
   };
 
+  const disarmDroneHandler = async () => {
+    try {
+      await disarmDrone();
+      addNewLogEntry(flightState, "ROS2: DISARM command sent to drone.");
+    } catch (e) {
+      if (e instanceof ApiError) {
+        addNewLogEntry(flightState, `ROS2: Disarm rejected — ${e.message}`);
+      } else {
+        addNewLogEntry(flightState, "ROS2: Backend not reachable — cannot disarm.");
+      }
+    }
+  };
+
   // ── Mission stops (map-click-driven, Feature 1/2) ────
   const addWaypointFromMap = (loc: LatLng) => {
     const label = String.fromCharCode('B'.charCodeAt(0) + nextStopLetter.current);
@@ -807,6 +822,25 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center space-x-2">
+            {/* Page switcher: Mission Control vs Flight Test Bench */}
+            <div className="flex items-center bg-[#141417] border border-white/10 rounded-full p-0.5 mr-1">
+              <button
+                onClick={() => setActivePage('mission')}
+                className={`text-[10px] font-mono uppercase tracking-wide px-3 py-1 rounded-full transition-all ${
+                  activePage === 'mission' ? 'bg-[#ffd02c] text-black font-bold' : 'text-[#9a9aa2] hover:text-white'
+                }`}
+              >
+                Mission
+              </button>
+              <button
+                onClick={() => setActivePage('testbench')}
+                className={`text-[10px] font-mono uppercase tracking-wide px-3 py-1 rounded-full transition-all ${
+                  activePage === 'testbench' ? 'bg-[#1ebcbd] text-black font-bold' : 'text-[#9a9aa2] hover:text-white'
+                }`}
+              >
+                Test Bench
+              </button>
+            </div>
             {/* ROS2 connection indicator in header */}
             <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full border flex items-center ${
               ros2Connected
@@ -829,6 +863,18 @@ export default function App() {
 
         <ConnectivityBanner nodeStatus={nodeStatus} wsConnected={wsConnected} />
 
+        {activePage === 'testbench' ? (
+          <FlightTestBench
+            imu={imu}
+            position={wsPosition}
+            nodeStatus={nodeStatus}
+            wsConnected={wsConnected}
+            droneStatus={droneStatus}
+            onArm={armDroneHandler}
+            onDisarm={disarmDroneHandler}
+          />
+        ) : (
+        <>
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
           <div className="lg:col-span-8 flex flex-col gap-6">
@@ -938,6 +984,8 @@ export default function App() {
             onChangeWindSpeed={setSimulationWindSpeed}
           />
         </section>
+        </>
+        )}
 
       </main>
     </div>
