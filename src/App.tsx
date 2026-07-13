@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, disarmDrone, generateMarker, setHome, getHome, getMode, getTravelLog, getGeofence, setGeofence, clearGeofence, ApiError } from './api';
+import { uploadWaypoints, abortMission, returnHome, resetMission, getMissionStatus, armDrone, disarmDrone, takeoffDrone, landDrone, manualNudge, ManualNudgeCmd, generateMarker, setHome, getHome, getMode, getTravelLog, getGeofence, setGeofence, clearGeofence, ApiError } from './api';
 // NOTE: We import our api functions but rename the local startMission
 // to avoid conflict with the imported one
 import { startMission as ros2Start } from './api';
@@ -599,6 +599,42 @@ export default function App() {
     }
   };
 
+  const takeoffDroneHandler = async () => {
+    try {
+      await takeoffDrone();
+      addNewLogEntry(flightState, "ROS2: TAKEOFF command sent (manual bench control).");
+    } catch (e) {
+      addNewLogEntry(flightState, e instanceof ApiError
+        ? `ROS2: Takeoff rejected — ${e.message}`
+        : "ROS2: Backend not reachable — cannot take off.");
+    }
+  };
+
+  const landDroneHandler = async () => {
+    try {
+      await landDrone();
+      addNewLogEntry(flightState, "ROS2: LAND command sent (manual bench control).");
+    } catch (e) {
+      addNewLogEntry(flightState, e instanceof ApiError
+        ? `ROS2: Land rejected — ${e.message}`
+        : "ROS2: Backend not reachable — cannot land.");
+    }
+  };
+
+  // Manual directional nudges are fired rapidly while a Test Bench button
+  // is held -- deliberately silent on success (no log spam per nudge) and
+  // only logs a REJECTION, so a genuine gate failure (mission active, not
+  // armed) is still visible without flooding the telemetry log.
+  const manualNudgeHandler = async (cmd: ManualNudgeCmd) => {
+    try {
+      await manualNudge(cmd);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        addNewLogEntry(flightState, `ROS2: Manual ${cmd} rejected — ${e.message}`);
+      }
+    }
+  };
+
   // ── Mission stops (map-click-driven, Feature 1/2) ────
   const addWaypointFromMap = (loc: LatLng) => {
     const label = String.fromCharCode('B'.charCodeAt(0) + nextStopLetter.current);
@@ -872,6 +908,9 @@ export default function App() {
             droneStatus={droneStatus}
             onArm={armDroneHandler}
             onDisarm={disarmDroneHandler}
+            onTakeoff={takeoffDroneHandler}
+            onLand={landDroneHandler}
+            onManualNudge={manualNudgeHandler}
           />
         ) : (
         <>

@@ -1,6 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plane, Gauge, Compass, Activity, ArrowUp, RotateCw, Power, AlertTriangle, Wifi, WifiOff, Battery } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Plane, Gauge, Compass, Activity, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
+  RotateCw, RotateCcw, Power, PlaneTakeoff, PlaneLanding, OctagonPause,
+  AlertTriangle, Wifi, WifiOff, Battery,
+} from 'lucide-react';
 import { ImuMessage, PositionMessage, NodeStatusMessage } from '../types';
+import { ManualNudgeCmd } from '../api';
 
 interface FlightTestBenchProps {
   imu: ImuMessage | null;
@@ -10,6 +15,9 @@ interface FlightTestBenchProps {
   droneStatus: string;
   onArm: () => void;
   onDisarm: () => void;
+  onTakeoff: () => void;
+  onLand: () => void;
+  onManualNudge: (cmd: ManualNudgeCmd) => void;
 }
 
 // Fixed-size ring buffers keep memory flat over a long bench session.
@@ -219,8 +227,125 @@ function DroneModel({ pitch, roll, yaw, armed }: { pitch: number; roll: number; 
   );
 }
 
+// ── Manual directional control pad ────────────────────────────────────
+// Press-and-hold repeat while a button stays down (mouse or touch), same
+// feel as a basic RC transmitter. Each repeat sends ONE small nudge --
+// the backend/ROS side rate-limits nothing extra, this interval IS the
+// rate limit, so it must stay slow enough that a stuck button can't run
+// the drone away before the operator lets go.
+const NUDGE_REPEAT_MS = 220;
+
+function NudgeButton({
+  label, icon, cmd, onNudge, disabled, className = '',
+}: {
+  label: string; icon: React.ReactNode; cmd: ManualNudgeCmd;
+  onNudge: (cmd: ManualNudgeCmd) => void; disabled: boolean; className?: string;
+}) {
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stop = useCallback(() => {
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
+  const start = useCallback(() => {
+    if (disabled || intervalRef.current !== null) return;
+    onNudge(cmd);
+    intervalRef.current = setInterval(() => onNudge(cmd), NUDGE_REPEAT_MS);
+  }, [disabled, cmd, onNudge]);
+  useEffect(() => stop, [stop]); // cleanup on unmount
+
+  return (
+    <button
+      onMouseDown={start}
+      onMouseUp={stop}
+      onMouseLeave={stop}
+      onTouchStart={(e) => { e.preventDefault(); start(); }}
+      onTouchEnd={stop}
+      disabled={disabled}
+      title={label}
+      className={`flex flex-col items-center justify-center gap-1 rounded-xl border font-mono text-[9px] uppercase tracking-wide font-bold select-none transition-all active:scale-95 ${
+        disabled
+          ? 'border-white/5 bg-[#0a0a0c] text-[#4a4a52] cursor-not-allowed'
+          : 'border-[#1ebcbd]/30 bg-[#0a1220] text-[#8ae8e9] hover:bg-[#1ebcbd]/15 active:bg-[#1ebcbd]/30 cursor-pointer'
+      } ${className}`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function ManualControlPad({
+  armed, canFly, canControl, onManualNudge, onTakeoff, onLand,
+}: {
+  armed: boolean; canFly: boolean; canControl: boolean;
+  onManualNudge: (cmd: ManualNudgeCmd) => void;
+  onTakeoff: () => void; onLand: () => void;
+}) {
+  const nudgeDisabled = !canControl;
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#0f0f13] p-4">
+      <div className="text-[10px] font-mono uppercase tracking-wider text-[#8fa3b8] mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-1.5"><Gauge className="w-3.5 h-3.5 text-[#1ebcbd]" /> Manual Control</span>
+        {!canControl && (
+          <span className="text-amber-400 normal-case tracking-normal flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3" /> {armed ? 'Take off to enable' : 'Arm to enable'}
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        {/* Takeoff / Land */}
+        <div className="grid grid-rows-2 gap-2">
+          <button onClick={onTakeoff} disabled={!armed || canFly}
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-30 disabled:cursor-not-allowed font-mono text-[10px] uppercase font-bold py-2 transition-all">
+            <PlaneTakeoff className="w-3.5 h-3.5" /> Takeoff
+          </button>
+          <button onClick={onLand} disabled={!canFly}
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 disabled:opacity-30 disabled:cursor-not-allowed font-mono text-[10px] uppercase font-bold py-2 transition-all">
+            <PlaneLanding className="w-3.5 h-3.5" /> Land
+          </button>
+        </div>
+
+        {/* Yaw + vertical */}
+        <div className="grid grid-cols-2 grid-rows-2 gap-2">
+          <NudgeButton label="Yaw L" icon={<RotateCcw className="w-4 h-4" />} cmd="YAW_LEFT" onNudge={onManualNudge} disabled={nudgeDisabled} />
+          <NudgeButton label="Yaw R" icon={<RotateCw className="w-4 h-4" />} cmd="YAW_RIGHT" onNudge={onManualNudge} disabled={nudgeDisabled} />
+          <NudgeButton label="Up" icon={<ArrowUp className="w-4 h-4" />} cmd="UP" onNudge={onManualNudge} disabled={nudgeDisabled} />
+          <NudgeButton label="Down" icon={<ArrowDown className="w-4 h-4" />} cmd="DOWN" onNudge={onManualNudge} disabled={nudgeDisabled} />
+        </div>
+      </div>
+
+      {/* Directional D-pad: forward/back/left/right */}
+      <div className="grid grid-cols-3 grid-rows-3 gap-2 mt-4 max-w-[220px] mx-auto">
+        <div />
+        <NudgeButton label="Fwd" icon={<ArrowUp className="w-5 h-5" />} cmd="FWD" onNudge={onManualNudge} disabled={nudgeDisabled} className="h-16" />
+        <div />
+        <NudgeButton label="Left" icon={<ArrowLeft className="w-5 h-5" />} cmd="LEFT" onNudge={onManualNudge} disabled={nudgeDisabled} className="h-16" />
+        <NudgeButton
+          label="Hold"
+          icon={<OctagonPause className="w-5 h-5" />}
+          cmd="HOLD"
+          onNudge={onManualNudge}
+          disabled={!canFly}
+          className="h-16 !border-[#ef4444]/40 !text-[#ef4444] !bg-[#ef4444]/10"
+        />
+        <NudgeButton label="Right" icon={<ArrowRight className="w-5 h-5" />} cmd="RIGHT" onNudge={onManualNudge} disabled={nudgeDisabled} className="h-16" />
+        <div />
+        <NudgeButton label="Back" icon={<ArrowDown className="w-5 h-5" />} cmd="BACK" onNudge={onManualNudge} disabled={nudgeDisabled} className="h-16" />
+        <div />
+      </div>
+      <p className="text-[9px] font-mono text-[#5b7a8c] text-center mt-3">
+        Press and hold a direction to nudge the airframe. Hold = stop drifting and re-anchor here.
+      </p>
+    </div>
+  );
+}
+
 export default function FlightTestBench({
   imu, position, nodeStatus, wsConnected, droneStatus, onArm, onDisarm,
+  onTakeoff, onLand, onManualNudge,
 }: FlightTestBenchProps) {
   const pitch = imu?.pitch ?? 0;
   const roll = imu?.roll ?? 0;
@@ -328,6 +453,15 @@ export default function FlightTestBench({
           </button>
         </div>
       </div>
+
+      <ManualControlPad
+        armed={armed}
+        canFly={droneStatus === 'AIRBORNE' || droneStatus === 'LANDING'}
+        canControl={(droneStatus === 'AIRBORNE' || droneStatus === 'LANDING') && wsConnected}
+        onManualNudge={onManualNudge}
+        onTakeoff={onTakeoff}
+        onLand={onLand}
+      />
 
       {noData && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] font-mono text-amber-300 flex items-center gap-2">

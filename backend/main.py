@@ -315,6 +315,66 @@ def disarm_drone():
     return {"status": "ok", "command": "DISARM"}
 
 
+@app.post("/drone/takeoff")
+def drone_takeoff():
+    """Manual bench takeoff (Flight Test Bench) -- outside any autonomous
+    mission. TAKEOFF on /drone_base/command arms AND sets OFFBOARD itself
+    (see drone_base_node._arm_and_offboard), so this doesn't require a
+    separate prior /drone/arm call, same as mission_manager's own PREFLIGHT
+    -> TAKEOFF transition.
+    """
+    if not ros_node:
+        raise HTTPException(503, "ROS bridge not connected")
+    if not ros_node.mavros_connected:
+        raise HTTPException(503, "MAVROS not connected.")
+    if ros_node.mission_state not in ("IDLE", "MISSION_COMPLETE", "MISSION_ABORT"):
+        raise HTTPException(409, "A mission is active — stop/reset it before manual takeoff.")
+    msg = String(); msg.data = "TAKEOFF"
+    ros_node.base_cmd_pub.publish(msg)
+    return {"status": "ok", "command": "TAKEOFF"}
+
+
+@app.post("/drone/land")
+def drone_land():
+    """Manual bench land -- ends a manual-control test flight in place."""
+    if not ros_node:
+        raise HTTPException(503, "ROS bridge not connected")
+    if ros_node.drone_status not in ("AIRBORNE", "LANDING"):
+        raise HTTPException(409, "Drone is not airborne.")
+    msg = String(); msg.data = "LAND"
+    ros_node.base_cmd_pub.publish(msg)
+    return {"status": "ok", "command": "LAND"}
+
+
+MANUAL_NUDGE_CMDS = {"FWD", "BACK", "LEFT", "RIGHT", "UP", "DOWN", "YAW_LEFT", "YAW_RIGHT", "HOLD"}
+
+
+@app.post("/drone/manual/{cmd}")
+def manual_nudge(cmd: str):
+    """Flight Test Bench directional pad -- small position/yaw nudges for
+    bench/real-drone attitude and control-response testing.
+
+    Deliberately gated narrower than _require_all_clear(): that gate also
+    demands GPS lock and a matching geofence, which would block exactly the
+    indoor/tripod bench testing this exists for. Manual control only needs
+    the mission state machine to be idle (so it can never race a running
+    autonomous mission for setpoint ownership) and the vehicle to already
+    be armed (arming itself already requires MAVROS to be connected).
+    """
+    cmd = cmd.upper()
+    if cmd not in MANUAL_NUDGE_CMDS:
+        raise HTTPException(400, f"Unknown manual command: {cmd}")
+    if not ros_node:
+        raise HTTPException(503, "ROS bridge not connected")
+    if ros_node.mission_state not in ("IDLE", "MISSION_COMPLETE", "MISSION_ABORT"):
+        raise HTTPException(409, "A mission is active — stop/reset it before using manual control.")
+    if ros_node.drone_status not in ("ARMED", "AIRBORNE", "LANDING"):
+        raise HTTPException(409, "Drone is not armed — arm (and take off) before manual control.")
+    msg = String(); msg.data = cmd
+    ros_node.manual_nudge_pub.publish(msg)
+    return {"status": "ok", "cmd": cmd}
+
+
 @app.get("/mission/status")
 def status():
     if ros_node:
@@ -595,6 +655,7 @@ class BridgeNode(Node):
         self.waypoints_pub = self.create_publisher(String, "/mission/waypoints", 10)
         self.cmd_pub = self.create_publisher(String, "/mission/command", 10)
         self.base_cmd_pub = self.create_publisher(String, "/drone_base/command", 10)
+        self.manual_nudge_pub = self.create_publisher(String, "/manual/nudge", 10)
 
         # ── Subscribers: mission/base/camera (existing) ──
         self.create_subscription(String,    "/mission/status",               self._mission_cb, 10)
