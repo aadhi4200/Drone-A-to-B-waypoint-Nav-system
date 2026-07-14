@@ -109,6 +109,11 @@ export default function App() {
   // ── Mission stops (B/C/D...), speed, traveled trail (Features 1/2/5/8/9) ──
   const [waypoints, setWaypoints] = useState<MissionWaypoint[]>([]);
   const [speedMs, setSpeedMs] = useState<number>(3.0);
+  // Landing choice at each stop: ArUco precision landing vs plain GPS
+  // AUTO.LAND (no marker), plus the adjustable ground wait before the
+  // next takeoff.
+  const [landMode, setLandMode] = useState<'aruco' | 'gps'>('aruco');
+  const [waitS, setWaitS] = useState<number>(5);
   const [traveledPath, setTraveledPath] = useState<LatLng[]>([]);
   const nextStopLetter = useRef<number>(0); // 0 -> 'B', 1 -> 'C', ...
   const MAX_TRAVELED_POINTS = 2000;
@@ -560,7 +565,7 @@ export default function App() {
       : [{ lat: destLoc!.lat, lon: destLoc!.lng, alt: TARGET_ALTITUDE_M, label: "B" }];
 
     try {
-      await uploadWaypoints(uploadList, speedMs);
+      await uploadWaypoints(uploadList, speedMs, landMode, waitS);
       await ros2Start();
       addNewLogEntry(FlightState.EN_ROUTE, `ROS2: ${uploadList.length} waypoint(s) sent, max speed ${speedMs} m/s.`);
     } catch (e) {
@@ -987,6 +992,10 @@ export default function App() {
               onGenerateMarker={generateWaypointMarker}
               speedMs={speedMs}
               onSetSpeedMs={setSpeedMs}
+              landMode={landMode}
+              onSetLandMode={setLandMode}
+              waitS={waitS}
+              onSetWaitS={setWaitS}
               mode={mode}
               abortAltitudeM={ABORT_ALTITUDE_M}
               disabled={wsConnected && nodeStatus ? !nodeStatus.all_clear : false}

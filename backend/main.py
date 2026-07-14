@@ -115,6 +115,8 @@ class Waypoint(BaseModel):
 class MissionUpload(BaseModel):
     waypoints: List[Waypoint]
     speed_ms: Optional[float] = None
+    land_mode: Optional[str] = "aruco"   # "aruco" = vision landing | "gps" = plain AUTO.LAND, no marker
+    wait_s: Optional[float] = None       # ground wait (s) before the next takeoff
 
 
 class MarkerGenerateRequest(BaseModel):
@@ -220,10 +222,20 @@ def upload(mission: MissionUpload):
 
     # The incoming payload is now known-good — replace the stored waypoints
     # before gating so geofence_valid judges THIS mission, not the last one.
+    if mission.land_mode not in (None, "aruco", "gps"):
+        raise HTTPException(400, f"land_mode must be 'aruco' or 'gps', got {mission.land_mode!r}")
+    if mission.wait_s is not None and not (0 <= mission.wait_s <= 120):
+        raise HTTPException(400, f"wait_s must be 0-120 seconds, got {mission.wait_s}")
+
     if ros_node:
+        # land_mode/wait_s ride on each waypoint dict so the published
+        # /mission/waypoints payload stays a plain list (mission_manager and
+        # waypoint_navigator both parse it as one).
         ros_node.uploaded_waypoints = [
             {"lat": w.lat, "lon": w.lon, "alt": w.alt, "label": w.label,
-             "marker_id": w.marker_id} for w in mission.waypoints]
+             "marker_id": w.marker_id,
+             "land_mode": mission.land_mode or "aruco",
+             "wait_s": mission.wait_s} for w in mission.waypoints]
     _require_all_clear()
 
     if ros_node and ros_node.home_lat is not None:
