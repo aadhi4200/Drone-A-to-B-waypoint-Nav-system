@@ -26,6 +26,8 @@ interface FlightControlPanelProps {
   droneStatus?: string;
   onArmDrone: () => void;
   allClear?: boolean;
+  waypointCount?: number;
+  mode?: 'sim' | 'hardware';
 }
 
 function formatAge(iso: string): string {
@@ -61,11 +63,13 @@ export default function FlightControlPanel({
   droneStatus,
   onArmDrone,
   allClear = true,
+  waypointCount = 0,
+  mode = 'sim',
 }: FlightControlPanelProps) {
 
   // Simple input validation
   const canPlan = startLoc && destLoc;
-  const canLaunch = startLoc && destLoc && allClear
+  const canLaunch = startLoc && (destLoc || waypointCount > 0) && allClear
     && (flightState === FlightState.IDLE || flightState === FlightState.PLANNING);
   const isArmed = droneStatus === 'ARMED' || droneStatus === 'AIRBORNE' || droneStatus === 'LANDING';
 
@@ -149,7 +153,20 @@ export default function FlightControlPanel({
         <div className="space-y-3.5">
           <div className="text-[10px] font-mono text-[#9a9aa2] tracking-wider uppercase">Active Trajectory Coordinates</div>
           
-          {/* Laptop Geolocation Sync Hub */}
+          {/* Laptop Geolocation Sync Hub -- sim-only: real hardware gets true
+              home from its own GPS module at boot, this laptop-sync workaround
+              only exists to tell PX4 SITL where Gazebo's home is. */}
+          {mode === 'hardware' ? (
+            <div className="bg-[#0a0a0c]/90 p-3 rounded-xl border border-white/10 font-mono">
+              <div className="text-[9.5px] text-[#9a9aa2] font-bold uppercase flex items-center gap-1 mb-1.5">
+                <MapPin className="w-3 h-3 text-[#7c7c84]" />
+                LAPTOP GPS LOCK
+              </div>
+              <p className="text-[9px] text-[#7c7c84] leading-snug uppercase">
+                Sim-only. Real hardware gets home from its own GPS module at boot -- no sync needed.
+              </p>
+            </div>
+          ) : (
           <div className="bg-[#0a0a0c]/90 p-3 rounded-xl border border-white/10 font-mono">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[9.5px] text-[#9a9aa2] font-bold uppercase flex items-center gap-1">
@@ -199,6 +216,7 @@ export default function FlightControlPanel({
               </p>
             )}
           </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3.5">
             {/* Start Lat/Lng input */}

@@ -78,7 +78,9 @@ function writeCachedPosition(lat: number, lng: number) {
 export default function App() {
   // ── Core location state ─────────────────────────────
   const [startLoc,   setStartLoc]   = useState<LatLng>(() => readCachedPosition() ?? { lat: 9.965800, lng: 76.242100 });
-  const [destLoc,    setDestLoc]    = useState<LatLng | null>({ lat: 9.973500, lng: 76.248500 });
+  // No default destination: the green dest marker/dashed path must not appear
+  // until the operator actually picks one (map click or manual entry).
+  const [destLoc,    setDestLoc]    = useState<LatLng | null>(null);
   const [activePage, setActivePage] = useState<'mission' | 'testbench'>('mission');
   const [dronePos,   setDronePos]   = useState(() => {
     const cached = readCachedPosition();
@@ -541,7 +543,7 @@ export default function App() {
 
   // ── Mission start ───────────────────────────────────
   const startMission = async () => {
-    if (!destLoc) return;
+    if (!destLoc && waypoints.length === 0) return;
     if (flightState !== FlightState.IDLE && flightState !== FlightState.PLANNING) return;
 
     setFlightState(FlightState.EN_ROUTE);
@@ -555,7 +557,7 @@ export default function App() {
     // fall back to the single quick-destination flow (destLoc) unchanged.
     const uploadList = waypoints.length > 0
       ? waypoints.map(w => ({ lat: w.lat, lon: w.lng, alt: w.alt, label: w.label, marker_id: w.markerId }))
-      : [{ lat: destLoc.lat, lon: destLoc.lng, alt: TARGET_ALTITUDE_M, label: "B" }];
+      : [{ lat: destLoc!.lat, lon: destLoc!.lng, alt: TARGET_ALTITUDE_M, label: "B" }];
 
     try {
       await uploadWaypoints(uploadList, speedMs);
@@ -975,6 +977,8 @@ export default function App() {
               droneStatus={droneStatus}
               onArmDrone={armDroneHandler}
               allClear={nodeStatus ? nodeStatus.all_clear : !wsConnected}
+              waypointCount={waypoints.length}
+              mode={mode}
             />
             <WaypointList
               waypoints={waypoints}
