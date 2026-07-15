@@ -46,10 +46,10 @@ export default function SensorReadout({
       <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden">
         <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
           <div className="flex items-center space-x-2">
-            <Cpu className="w-5 h-5 text-[#ffd02c]" />
+            <Cpu className="w-5 h-5 text-[#5996FF]" />
             <h3 className="font-semibold text-white tracking-wide text-sm uppercase font-display">Spatial Sensors</h3>
           </div>
-          <span className="text-[10px] font-mono px-2 py-0.5 bg-[#ffd02c]/10 text-[#ffd02c] rounded border border-[#ffd02c]/20">LIVE-STREAM</span>
+          <span className="text-[10px] font-mono px-2 py-0.5 bg-[#5996FF]/10 text-[#5996FF] rounded border border-[#5996FF]/20">LIVE-STREAM</span>
         </div>
 
         {/* Dynamic Spatial Graphic */}
@@ -60,11 +60,11 @@ export default function SensorReadout({
             <div className="w-16 h-16 rounded-full border border-white/10 flex items-center justify-center relative overflow-hidden bg-[#141417]">
               {/* Pitch bar indicator */}
               <div 
-                className="absolute w-12 h-0.5 bg-[#ffd02c] transition-transform duration-200"
+                className="absolute w-12 h-0.5 bg-[#5996FF] transition-transform duration-200"
                 style={{ transform: `rotate(${sensors.pitch}deg) translateY(${sensors.pitch * 0.5}px)` }}
               />
-              <div className="absolute inset-0 border border-[#ffd02c]/10 pointer-events-none" />
-              <span className="z-10 text-[11px] font-mono text-[#ffd02c] font-semibold">{sensors.pitch.toFixed(1)}°</span>
+              <div className="absolute inset-0 border border-[#5996FF]/10 pointer-events-none" />
+              <span className="z-10 text-[11px] font-mono text-[#5996FF] font-semibold">{sensors.pitch.toFixed(1)}°</span>
             </div>
           </div>
 
@@ -107,7 +107,7 @@ export default function SensorReadout({
           </div>
           <div className="bg-[#0a0a0c]/90 p-2.5 rounded-xl border border-white/10 leading-tight">
             <div className="text-[10px] text-[#9a9aa2] uppercase">Baro Altitude</div>
-            <div className="text-[#ffd02c] font-bold mt-1">{sensors.barometerAltitudeM.toFixed(1)}m</div>
+            <div className="text-[#5996FF] font-bold mt-1">{sensors.barometerAltitudeM.toFixed(1)}m</div>
           </div>
         </div>
       </div>
@@ -116,7 +116,7 @@ export default function SensorReadout({
       <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden">
         <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
           <div className="flex items-center space-x-2">
-            <Thermometer className="w-5 h-5 text-[#ffd02c]" />
+            <Thermometer className="w-5 h-5 text-[#5996FF]" />
             <h3 className="font-semibold text-white tracking-wide text-sm uppercase font-display">Thermal Control</h3>
           </div>
           <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
@@ -134,13 +134,13 @@ export default function SensorReadout({
             <div>
               <div className="text-[10px] text-[#9a9aa2] uppercase">Battery Temp</div>
               <div className={`text-sm font-bold mt-0.5 ${
-                climate.batteryTempC > 45 ? 'text-red-400' : climate.batteryTempC < 15 ? 'text-[#ffd02c]' : 'text-emerald-300'
+                climate.batteryTempC > 45 ? 'text-red-400' : climate.batteryTempC < 15 ? 'text-[#5996FF]' : 'text-emerald-300'
               }`}>{climate.batteryTempC.toFixed(1)}°C</div>
             </div>
             {climate.batteryTempC > 45 ? (
               <span className="p-1 px-1.5 rounded bg-red-400/10 text-red-500 text-[10px] uppercase font-bold text-center">Hot</span>
             ) : climate.batteryTempC < 15 ? (
-              <span className="p-1 px-1.5 rounded bg-[#ffd02c]/10 text-[#ffd02c] text-[10px] uppercase font-bold text-center">Cold</span>
+              <span className="p-1 px-1.5 rounded bg-[#5996FF]/10 text-[#5996FF] text-[10px] uppercase font-bold text-center">Cold</span>
             ) : (
               <span className="p-1 px-1.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] uppercase font-bold text-center">Optimal</span>
             )}
@@ -175,11 +175,11 @@ export default function SensorReadout({
               onClick={onToggleCooler}
               className={`p-2.5 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 border transition-all cursor-pointer ${
                 climate.coolerActive 
-                  ? 'bg-[#ffd02c]/10 border-[#ffd02c]/30 text-[#ffd02c] shadow-md' 
+                  ? 'bg-[#5996FF]/10 border-[#5996FF]/30 text-[#5996FF] shadow-md' 
                   : 'bg-[#141417]/45 border-white/10 text-[#9a9aa2] hover:text-white hover:bg-white/10'
               }`}
             >
-              <Fan className={`w-3.5 h-3.5 ${climate.coolerActive ? 'animate-spin text-[#ffd02c]' : ''}`} />
+              <Fan className={`w-3.5 h-3.5 ${climate.coolerActive ? 'animate-spin text-[#5996FF]' : ''}`} />
               <span>Fans: {climate.coolerActive ? 'ON' : 'OFF'}</span>
             </button>
           </div>
@@ -188,7 +188,7 @@ export default function SensorReadout({
         {/* Wind Stability Slider */}
         <div className="mt-4 border-t border-white/10 pt-3">
           <div className="flex justify-between items-center text-[10px] font-mono mb-1.5 text-[#9a9aa2]">
-            <span className="flex items-center uppercase"><Wind className="w-3 h-3 mr-1 text-[#ffd02c]" /> Wind Turbulence Rate</span>
+            <span className="flex items-center uppercase"><Wind className="w-3 h-3 mr-1 text-[#5996FF]" /> Wind Turbulence Rate</span>
             <span className="text-white font-bold">{climate.windSpeedKnots.toFixed(1)} Knots</span>
           </div>
           <input
@@ -199,7 +199,7 @@ export default function SensorReadout({
             step="0.5"
             value={simulationWindSpeed}
             onChange={(e) => onChangeWindSpeed(parseFloat(e.target.value))}
-            className="w-full h-1 bg-[#2a2a2f] rounded-lg appearance-none cursor-pointer accent-[#ffd02c]"
+            className="w-full h-1 bg-[#2a2a2f] rounded-lg appearance-none cursor-pointer accent-[#5996FF]"
           />
           <div className="flex justify-between text-[8px] text-[#7c7c84] font-mono mt-0.5">
             <span>0 KT (CALM)</span>
@@ -213,7 +213,7 @@ export default function SensorReadout({
       <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden">
         <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
           <div className="flex items-center space-x-2">
-            <Shield className="w-5 h-5 text-[#ffd02c]" />
+            <Shield className="w-5 h-5 text-[#5996FF]" />
             <h3 className="font-semibold text-white tracking-wide text-sm uppercase font-display">Secure Comms</h3>
           </div>
           <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
@@ -236,8 +236,8 @@ export default function SensorReadout({
               </span>
             </div>
             <div className="text-xs text-white font-mono font-semibold mt-2.5 break-all bg-[#0a0a0c]/95 p-2 rounded-lg border border-white/5">
-              <span className="text-[#ffd02c] text-[10px] block mr-1 uppercase select-none">AES-256 HMAC Key:</span>
-              <span className="text-[#ffd02c]">{signal.encryptionKey || "NULL (DEFAULT_UNSAFE)"}</span>
+              <span className="text-[#5996FF] text-[10px] block mr-1 uppercase select-none">AES-256 HMAC Key:</span>
+              <span className="text-[#5996FF]">{signal.encryptionKey || "NULL (DEFAULT_UNSAFE)"}</span>
             </div>
           </div>
 
@@ -251,7 +251,7 @@ export default function SensorReadout({
                 defaultValue={signal.encryptionKey}
                 onChange={(e) => onSetEncryptionKey(e.target.value)}
                 maxLength={64}
-                className="flex-1 bg-[#0a0a0c]/90 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-[#ffd02c]/45 transition-all"
+                className="flex-1 bg-[#0a0a0c]/90 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-[#5996FF]/45 transition-all"
               />
             </div>
             <span className="text-[9px] text-[#7c7c84] font-mono leading-tight block">

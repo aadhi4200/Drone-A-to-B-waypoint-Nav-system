@@ -128,16 +128,6 @@ export default function App() {
   // ── Geofence (QGC-style): committed polygon + in-progress draft ─────
   const [geofence, setGeofenceState] = useState<LatLng[]>([]);
   const [fenceDraft, setFenceDraft] = useState<LatLng[]>([]);
-  useEffect(() => {
-    getGeofence()
-      .then(g => {
-        if (g?.vertices?.length) {
-          setGeofenceState(g.vertices.map(v => ({ lat: v.lat, lng: v.lon })));
-        }
-      })
-      .catch(() => {});
-  }, []);
-
   const handleFenceVertex = (loc: LatLng) => setFenceDraft(prev => [...prev, loc]);
 
   const handleFinishFence = async () => {
@@ -169,6 +159,14 @@ export default function App() {
 
   // ── Live WebSocket push: node/preflight status, IMU, position ───────
   const { connected: wsConnected, nodeStatus, imu, position: wsPosition, missionState: wsMissionState } = useSystemStatusSocket();
+
+  useEffect(() => {
+    getGeofence()
+      .then(g => {
+        setGeofenceState((g?.vertices ?? []).map(v => ({ lat: v.lat, lng: v.lon })));
+      })
+      .catch(() => {});
+  }, [wsConnected]);
 
   // ── Simulation ──────────────────────────────────────
   const [simulationWindSpeed, setSimulationWindSpeed] = useState<number>(8.5);
@@ -835,7 +833,7 @@ export default function App() {
 
   // ── Render ───────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#0a0a0c] text-white font-sans selection:bg-[#ffd02c] selection:text-black pb-14 relative overflow-hidden">
+    <div className="min-h-screen bg-[#0a0a0c] text-white font-sans selection:bg-[#5996FF] selection:text-black pb-14 relative overflow-hidden">
 
       {/* Background grid */}
       <div className="absolute inset-0 z-0 opacity-15 pointer-events-none">
@@ -853,13 +851,13 @@ export default function App() {
       <header className="border-b border-white/10 bg-[#0a0a0c]/90 sticky top-0 z-40 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-[#ffd02c] rounded flex items-center justify-center font-bold text-black shadow-[0_0_15px_rgba(255,208,44,0.4)]">
+            <div className="w-8 h-8 bg-[#5996FF] rounded flex items-center justify-center font-bold text-black shadow-[0_0_15px_rgba(89,150,255,0.4)]">
               UAV
             </div>
             <div>
               <h1 className="text-sm font-bold tracking-tight text-white uppercase flex items-center">
                 SkyNav Avionics Systems
-                <span className="text-[#ffd02c] text-[9px] font-mono ml-2 bg-[#141417] px-2 py-0.5 rounded border border-white/10">v4.2.0-STABLE</span>
+                <span className="text-[#5996FF] text-[9px] font-mono ml-2 bg-[#141417] px-2 py-0.5 rounded border border-white/10">v4.2.0-STABLE</span>
               </h1>
               <p className="text-[10px] text-[#9a9aa2] font-mono">Autonomous Drone Mission Control · LiDAR · ROS2 FastAPI Bridge</p>
             </div>
@@ -870,7 +868,7 @@ export default function App() {
               <button
                 onClick={() => setActivePage('mission')}
                 className={`text-[10px] font-mono uppercase tracking-wide px-3 py-1 rounded-full transition-all ${
-                  activePage === 'mission' ? 'bg-[#ffd02c] text-black font-bold' : 'text-[#9a9aa2] hover:text-white'
+                  activePage === 'mission' ? 'bg-[#5996FF] text-black font-bold' : 'text-[#9a9aa2] hover:text-white'
                 }`}
               >
                 Mission
@@ -893,7 +891,7 @@ export default function App() {
               <span className={`w-1.5 h-1.5 rounded-full mr-2 ${ros2Connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
               {ros2Connected ? 'ROS2 CONNECTED' : 'SIM MODE'}
             </span>
-            <span className="text-[10px] font-mono shrink-0 px-2.5 py-1 bg-[#141417] border border-white/10 text-[#ffd02c] rounded-full flex items-center">
+            <span className="text-[10px] font-mono shrink-0 px-2.5 py-1 bg-[#141417] border border-white/10 text-[#5996FF] rounded-full flex items-center">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2 animate-pulse" />
               PORTAL SECURE
             </span>
@@ -954,6 +952,14 @@ export default function App() {
                 emergencyLandingActive={flightState === FlightState.EMERGENCY_LANDING}
               />
             </MapErrorBoundary>
+            <CameraFeed
+              dronePos={dronePos}
+              flightState={flightState}
+              destLoc={destLoc}
+              obstacles={obstacles}
+              sensors={sensors}
+              ros2Connected={ros2Connected}
+            />
             <TelemetryLogStream logs={logs} onClearLogs={() => setLogs([])} />
           </div>
 
@@ -1006,15 +1012,7 @@ export default function App() {
 
         </section>
 
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <CameraFeed
-            dronePos={dronePos}
-            flightState={flightState}
-            destLoc={destLoc}
-            obstacles={obstacles}
-            sensors={sensors}
-            ros2Connected={ros2Connected}
-          />
+        <section>
           <IMUGraph imu={imu} ros2Connected={ros2Connected} />
         </section>
 

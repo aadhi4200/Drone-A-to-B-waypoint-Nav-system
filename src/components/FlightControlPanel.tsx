@@ -76,7 +76,7 @@ export default function FlightControlPanel({
   // Signal status descriptor Helper
   const getSignalStatus = (dbm: number) => {
     if (dbm > -60) return { label: "Excellent Link Connect", color: "text-emerald-400" };
-    if (dbm > -75) return { label: "Standard Signal Stable", color: "text-amber-400" };
+    if (dbm > -75) return { label: "Standard Signal Stable", color: "text-blue-400" };
     return { label: "Poor Noise Alert", color: "text-red-400 animate-pulse" };
   };
 
@@ -89,14 +89,14 @@ export default function FlightControlPanel({
         {/* Header containing Battery & Signal meters */}
         <div className="border-b border-white/10 pb-3 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <Radio className="w-5 h-5 text-[#ffd02c] animate-pulse" />
+            <Radio className="w-5 h-5 text-[#5996FF] animate-pulse" />
             <h3 className="font-semibold text-white tracking-wide text-sm uppercase font-display">Mission Control</h3>
           </div>
           <div>
             <span className={`px-2.5 py-1 text-xs font-mono font-bold rounded border ${
               flightState === FlightState.EN_ROUTE ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
               flightState === FlightState.EMERGENCY_LANDING ? 'bg-red-500/20 text-red-400 border-red-500/30 animate-pulse' :
-              flightState === FlightState.LANDED_SAFE ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+              flightState === FlightState.LANDED_SAFE ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
               'bg-[#141417] text-[#d1d1d6] border-white/10 backdrop-blur-md'
             }`}>
               {flightState}
@@ -107,7 +107,7 @@ export default function FlightControlPanel({
         {/* Mission Flight Stopwatch Widget */}
         <div className="bg-[#1c1c20] rounded-xl p-3 border border-white/10 flex items-center justify-between font-mono">
           <div className="flex items-center space-x-3">
-            <div className={`p-2 rounded-lg ${flightState === FlightState.EN_ROUTE ? 'bg-[#ffd02c]/10 text-[#ffd02c] animate-pulse' : 'bg-[#141417]/60 text-[#7c7c84]'}`}>
+            <div className={`p-2 rounded-lg ${flightState === FlightState.EN_ROUTE ? 'bg-[#5996FF]/10 text-[#5996FF] animate-pulse' : 'bg-[#141417]/60 text-[#7c7c84]'}`}>
               <Timer className="w-4 h-4" />
             </div>
             <div>
@@ -124,7 +124,7 @@ export default function FlightControlPanel({
                     EMER DEVIATION
                   </span>
                 ) : flightState === FlightState.LANDED_SAFE ? (
-                  <span className="text-amber-400">COMPLETED</span>
+                  <span className="text-blue-400">COMPLETED</span>
                 ) : (
                   <span className="text-[#7c7c84]">STANDBY</span>
                 )}
@@ -133,9 +133,9 @@ export default function FlightControlPanel({
           </div>
           <div className="text-right">
             <div className={`text-xl font-bold font-mono tracking-widest leading-none ${
-              flightState === FlightState.EN_ROUTE ? 'text-[#ffd02c]' :
+              flightState === FlightState.EN_ROUTE ? 'text-[#5996FF]' :
               flightState === FlightState.EMERGENCY_LANDING ? 'text-rose-400' :
-              flightState === FlightState.LANDED_SAFE ? 'text-amber-400' : 'text-[#9a9aa2]'
+              flightState === FlightState.LANDED_SAFE ? 'text-blue-400' : 'text-[#9a9aa2]'
             }`}>
               {(() => {
                 const mins = Math.floor(missionTimeSec / 60);
@@ -170,11 +170,11 @@ export default function FlightControlPanel({
           <div className="bg-[#0a0a0c]/90 p-3 rounded-xl border border-white/10 font-mono">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[9.5px] text-[#9a9aa2] font-bold uppercase flex items-center gap-1">
-                <MapPin className="w-3 h-3 text-[#ffd02c] animate-pulse" />
+                <MapPin className="w-3 h-3 text-[#5996FF] animate-pulse" />
                 LAPTOP GPS LOCK
               </span>
               {gpsSyncStatus === 'locating' ? (
-                <span className="text-[9px] text-[#ffd02c] font-bold animate-pulse flex items-center">
+                <span className="text-[9px] text-[#5996FF] font-bold animate-pulse flex items-center">
                   🛰️ LOCKING ON...
                 </span>
               ) : gpsSyncStatus === 'success' ? (
@@ -194,14 +194,14 @@ export default function FlightControlPanel({
               type="button"
               onClick={onSyncLaptopLocation}
               disabled={gpsSyncStatus === 'locating'}
-              className="w-full py-1.5 px-3 bg-[#ffd02c]/10 hover:bg-[#ffd02c]/10 active:bg-[#ffd02c]/30 border border-[#ffd02c]/30 text-[#ffd02c] hover:text-white rounded-lg text-[10px] font-bold tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed uppercase"
+              className="w-full py-1.5 px-3 bg-[#5996FF]/10 hover:bg-[#5996FF]/10 active:bg-[#5996FF]/30 border border-[#5996FF]/30 text-[#5996FF] hover:text-white rounded-lg text-[10px] font-bold tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed uppercase"
             >
-              <Crosshair className={`w-3.5 h-3.5 ${gpsSyncStatus === 'locating' ? 'animate-spin text-[#ffd02c]' : 'text-[#ffd02c]'}`} />
+              <Crosshair className={`w-3.5 h-3.5 ${gpsSyncStatus === 'locating' ? 'animate-spin text-[#5996FF]' : 'text-[#5996FF]'}`} />
               {gpsSyncStatus === 'locating' ? 'Locking Satellite...' : 'Use Laptop Location'}
             </button>
 
             <div className="text-[8.5px] text-[#9a9aa2] leading-normal pt-1.5 mt-1.5 border-t border-white/5 uppercase">
-              💡 <span className="font-semibold text-amber-400/90">Workaround:</span> Toggle <strong className="text-amber-400">"Start Coords"</strong> above the map, then use the search bar to locate your city!
+              💡 <span className="font-semibold text-blue-400/90">Workaround:</span> Toggle <strong className="text-blue-400">"Start Coords"</strong> above the map, then use the search bar to locate your city!
             </div>
 
             {gpsSyncError && (
@@ -220,8 +220,8 @@ export default function FlightControlPanel({
 
           <div className="grid grid-cols-2 gap-3.5">
             {/* Start Lat/Lng input */}
-            <div className="space-y-1 bg-[#0a0a0c]/90 p-2.5 rounded-xl border border-white/10 backdrop-blur-sm focus-within:border-[#ffd02c]/40 transition-all">
-              <label className="text-[9.5px] font-mono font-bold text-amber-400 uppercase flex items-center">
+            <div className="space-y-1 bg-[#0a0a0c]/90 p-2.5 rounded-xl border border-white/10 backdrop-blur-sm focus-within:border-[#5996FF]/40 transition-all">
+              <label className="text-[9.5px] font-mono font-bold text-blue-400 uppercase flex items-center">
                 <Anchor className="w-3 h-3 mr-1" /> Base Station (S)
               </label>
               <div className="space-y-1 text-xs font-mono">
@@ -251,8 +251,8 @@ export default function FlightControlPanel({
             </div>
 
             {/* Destination Lat/Lng input */}
-            <div className="space-y-1 bg-[#0a0a0c]/90 p-2.5 rounded-xl border border-white/10 backdrop-blur-sm focus-within:border-[#ffd02c]/40 transition-all">
-              <label className="text-[9.5px] font-mono font-bold text-[#ffd02c] uppercase flex items-center">
+            <div className="space-y-1 bg-[#0a0a0c]/90 p-2.5 rounded-xl border border-white/10 backdrop-blur-sm focus-within:border-[#5996FF]/40 transition-all">
+              <label className="text-[9.5px] font-mono font-bold text-[#5996FF] uppercase flex items-center">
                 <Compass className="w-3 h-3 mr-1" /> Delivery Zone (D)
               </label>
               <div className="space-y-1 text-xs font-mono">
@@ -293,10 +293,10 @@ export default function FlightControlPanel({
           {/* Live Remaining Distance Card */}
           <div className="bg-[#0a0a0c]/90 p-3 rounded-xl border border-white/10 backdrop-blur-sm flex items-center justify-between font-mono">
             <div>
-              <div className="text-[9.5px] font-bold text-[#ffd02c] uppercase flex items-center">
+              <div className="text-[9.5px] font-bold text-[#5996FF] uppercase flex items-center">
                 <span className={`relative flex h-2 w-2 mr-1.5 ${flightState === FlightState.EN_ROUTE ? 'block' : 'hidden'}`}>
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ffd02c] opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#ffd02c]"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#5996FF] opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#5996FF]"></span>
                 </span>
                 Delivery Zone Distance
               </div>
@@ -336,7 +336,7 @@ export default function FlightControlPanel({
             onClick={onPlanPath}
             className={`w-full py-2.5 border rounded-xl text-xs font-bold font-sans flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
               canPlan 
-                ? 'bg-[#ffd02c] border-transparent text-black hover:bg-[#ffdd55] shadow-md shadow-black/40' 
+                ? 'bg-[#5996FF] border-transparent text-black hover:bg-[#ffdd55] shadow-md shadow-black/40' 
                 : 'bg-[#141417] border-white/5 text-[#7c7c84] cursor-not-allowed'
             }`}
           >
@@ -353,13 +353,13 @@ export default function FlightControlPanel({
             {/* Battery Cell Voltages and Temperature */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs font-mono">
-                <span className="text-[#d1d1d6] flex items-center font-semibold"><Zap className="w-3.5 h-3.5 text-amber-400 mr-1.5" /> Core Lithium Pack</span>
+                <span className="text-[#d1d1d6] flex items-center font-semibold"><Zap className="w-3.5 h-3.5 text-blue-400 mr-1.5" /> Core Lithium Pack</span>
                 <span className={`font-semibold ${battery.percentage < 25 ? 'text-red-400 animate-pulse font-bold' : 'text-white'}`}>{battery.percentage.toFixed(0)}% ({battery.voltage.toFixed(1)}V)</span>
               </div>
               {/* Depletion graph meter */}
               <div className="h-2 bg-[#141417] rounded-full overflow-hidden border border-white/5">
                 <div 
-                  className={`h-full transition-all duration-300 ${battery.percentage < 25 ? 'bg-red-500' : 'bg-[#ffd02c] shadow-[0_0_8px_rgba(255,208,44,0.5)]'}`}
+                  className={`h-full transition-all duration-300 ${battery.percentage < 25 ? 'bg-red-500' : 'bg-[#5996FF] shadow-[0_0_8px_rgba(89,150,255,0.5)]'}`}
                   style={{ width: `${battery.percentage}%` }}
                 />
               </div>
@@ -375,8 +375,8 @@ export default function FlightControlPanel({
             {/* Signal Strength DBm Status */}
             <div className="space-y-2 pt-2 border-t border-white/5">
               <div className="flex justify-between items-center text-xs font-mono">
-                <span className="text-[#d1d1d6] flex items-center font-semibold text-[11px]"><Radio className="w-3.5 h-3.5 text-[#ffd02c] mr-1.5" /> Telemetry Link</span>
-                <span className={`text-[11.5px] font-bold ${signalStatus.color.includes('text-emerald-400') ? 'text-[#ffd02c]' : signalStatus.color}`}>{signal.strengthDbm} dBm (RSSI)</span>
+                <span className="text-[#d1d1d6] flex items-center font-semibold text-[11px]"><Radio className="w-3.5 h-3.5 text-[#5996FF] mr-1.5" /> Telemetry Link</span>
+                <span className={`text-[11.5px] font-bold ${signalStatus.color.includes('text-emerald-400') ? 'text-[#5996FF]' : signalStatus.color}`}>{signal.strengthDbm} dBm (RSSI)</span>
               </div>
               <div className="text-[10.5px] font-mono text-[#9a9aa2] leading-none">
                 {signalStatus.label}
@@ -401,7 +401,7 @@ export default function FlightControlPanel({
             isArmed
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 cursor-default'
               : ros2Connected
-                ? 'bg-amber-500 border-transparent text-white hover:bg-amber-400 shadow-md shadow-amber-500/20 cursor-pointer'
+                ? 'bg-blue-500 border-transparent text-white hover:bg-blue-400 shadow-md shadow-blue-500/20 cursor-pointer'
                 : 'bg-[#141417] border-white/5 text-[#7c7c84] cursor-not-allowed'
           }`}
         >
@@ -417,7 +417,7 @@ export default function FlightControlPanel({
             onClick={onLaunchMission}
             className={`py-2.5 px-3 rounded-xl text-xs font-bold font-sans flex items-center justify-center space-x-1 border transition-all cursor-pointer ${
               canLaunch
-                ? 'bg-[#ffd02c] border-transparent text-black hover:bg-[#ffdd55] shadow-md shadow-black/40'
+                ? 'bg-[#5996FF] border-transparent text-black hover:bg-[#ffdd55] shadow-md shadow-black/40'
                 : 'bg-[#141417] border-white/5 text-[#7c7c84] cursor-not-allowed'
             }`}
           >
@@ -430,7 +430,7 @@ export default function FlightControlPanel({
             onClick={onResetDrone}
             className="py-2.5 px-3 rounded-xl text-xs font-bold font-sans flex items-center justify-center space-x-1 border border-white/10 bg-[#141417] text-[#d1d1d6] hover:bg-white/10 hover:text-white transition-all cursor-pointer"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-[#ffd02c]" />
+            <RotateCcw className="w-3.5 h-3.5 text-[#5996FF]" />
             <span>Reset System</span>
           </button>
         </div>
@@ -444,7 +444,7 @@ export default function FlightControlPanel({
           title={flightState !== FlightState.EN_ROUTE ? 'Only available while en route' : 'Fly back to home and land'}
           className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold font-sans flex items-center justify-center space-x-1.5 border transition-all uppercase ${
             flightState === FlightState.EN_ROUTE
-              ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 cursor-pointer'
+              ? 'bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 cursor-pointer'
               : 'bg-[#141417] border-white/5 text-[#7c7c84] cursor-not-allowed'
           }`}
         >

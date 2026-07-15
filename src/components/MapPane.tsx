@@ -327,7 +327,7 @@ export default function MapPane({
         type: 'line',
         source: 'direct-path',
         paint: {
-          'line-color': '#5b7a9c',
+          'line-color': '#475569',
           'line-width': 3,
           'line-dasharray': [3, 2]
         }
@@ -338,14 +338,24 @@ export default function MapPane({
         data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
       });
       map.addLayer({
+        id: 'planned-path-glow',
+        type: 'line',
+        source: 'planned-path',
+        paint: {
+          'line-color': '#22d3ee',
+          'line-width': 9,
+          'line-blur': 7,
+          'line-opacity': 0.25
+        }
+      });
+      map.addLayer({
         id: 'planned-path-layer',
         type: 'line',
         source: 'planned-path',
         paint: {
-          'line-color': '#D1D4DE',
-          'line-width': 5,
-          'line-opacity': 0.9,
-          'line-dasharray': [2, 2]
+          'line-color': '#67e8f9',
+          'line-width': 3.5,
+          'line-opacity': 0.9
         }
       });
 
@@ -362,7 +372,7 @@ export default function MapPane({
         type: 'line',
         source: 'traveled-path',
         paint: {
-          'line-color': '#ef4444',
+          'line-color': '#f59e0b',
           'line-width': 11,
           'line-blur': 8,
           'line-opacity': 0.35
@@ -373,7 +383,7 @@ export default function MapPane({
         type: 'line',
         source: 'traveled-path',
         paint: {
-          'line-color': '#ef4444',
+          'line-color': '#fcd34d',
           'line-width': 3.5
         }
       });
@@ -388,13 +398,19 @@ export default function MapPane({
         id: 'geofence-fill',
         type: 'fill',
         source: 'geofence',
-        paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.07 }
+        paint: { 'fill-color': '#818cf8', 'fill-opacity': 0.08 }
+      });
+      map.addLayer({
+        id: 'geofence-glow',
+        type: 'line',
+        source: 'geofence',
+        paint: { 'line-color': '#818cf8', 'line-width': 8, 'line-blur': 6, 'line-opacity': 0.3 }
       });
       map.addLayer({
         id: 'geofence-outline',
         type: 'line',
         source: 'geofence',
-        paint: { 'line-color': '#f59e0b', 'line-width': 2.5 }
+        paint: { 'line-color': '#a5b4fc', 'line-width': 2 }
       });
       map.addSource('geofence-draft', {
         type: 'geojson',
@@ -404,13 +420,13 @@ export default function MapPane({
         id: 'geofence-draft-line',
         type: 'line',
         source: 'geofence-draft',
-        paint: { 'line-color': '#f59e0b', 'line-width': 2, 'line-dasharray': [2, 2] }
+        paint: { 'line-color': '#a5b4fc', 'line-width': 2, 'line-dasharray': [2, 2] }
       });
       map.addLayer({
         id: 'geofence-draft-points',
         type: 'circle',
         source: 'geofence-draft',
-        paint: { 'circle-radius': 4.5, 'circle-color': '#f59e0b', 'circle-stroke-color': '#0f172a', 'circle-stroke-width': 1.5 }
+        paint: { 'circle-radius': 4.5, 'circle-color': '#a5b4fc', 'circle-stroke-color': '#06141f', 'circle-stroke-width': 1.5 }
       });
 
       map.addSource('obstacles-path', {
@@ -477,10 +493,10 @@ export default function MapPane({
                 'interpolate',
                 ['linear'],
                 ['get', 'height'],
-                0, '#0f172a',
-                30, '#111827',
-                70, '#1e1b4b',
-                150, '#1e3a8a'
+                0, '#131a27',
+                30, '#16202f',
+                70, '#1b2739',
+                150, '#243448'
               ],
               'fill-extrusion-height': [
                 'coalesce',
@@ -494,7 +510,7 @@ export default function MapPane({
                 ['get', 'render_min_height'],
                 0
               ],
-              'fill-extrusion-opacity': 0.65
+              'fill-extrusion-opacity': 0.75
             }
           });
         }
@@ -551,7 +567,7 @@ export default function MapPane({
         const el = document.createElement('div');
         el.className = 'custom-dest-icon';
         el.innerHTML = `
-          <div class="relative flex items-center justify-center w-8 h-8 rounded-full bg-[#0a1220]/90 border border-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)] text-emerald-400 font-bold">
+          <div class="relative flex items-center justify-center w-8 h-8 rounded-full bg-[#06141f]/80 border-2 border-indigo-400 shadow-[0_0_18px_rgba(129,140,248,0.8)] text-indigo-300 font-bold">
             <svg class="w-4 h-4 animate-pulse duration-1000" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"></circle>
               <circle cx="12" cy="12" r="3"></circle>
@@ -792,7 +808,7 @@ export default function MapPane({
       const el = document.createElement('div');
       el.className = 'select-none pointer-events-none';
       el.innerHTML = `
-        <div class="text-[9px] font-mono font-bold text-sky-200 px-1.5 py-0.5 bg-[#0a1220]/90 rounded border border-sky-400/30 whitespace-nowrap shadow-md">
+        <div class="text-[9px] font-mono font-bold text-cyan-200 px-2 py-0.5 bg-[#06141f]/85 rounded-full border border-cyan-400/30 whitespace-nowrap shadow-[0_0_10px_rgba(34,211,238,0.3)]">
           ${text}
         </div>
       `;
@@ -816,10 +832,17 @@ export default function MapPane({
       const el = document.createElement('div');
       const spawned = wp.markerStatus === 'spawned';
       el.innerHTML = `
-        <div class="flex items-center justify-center w-7 h-7 rounded-full bg-[#0a1220]/90 border ${
-          spawned ? 'border-emerald-500 text-emerald-400' : 'border-[#1ebcbd] text-[#5eead4]'
-        } font-bold text-[10px] font-mono shadow-lg">
-          ${wp.label}
+        <div class="relative flex items-center justify-center w-9 h-9">
+          <div class="absolute -inset-1.5 rounded-full border ${
+            spawned ? 'border-emerald-400/40' : 'border-cyan-400/40'
+          } animate-ping" style="animation-duration:2.5s"></div>
+          <div class="relative flex items-center justify-center w-7 h-7 rounded-full bg-[#06141f]/80 border-2 ${
+            spawned
+              ? 'border-emerald-400 text-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.8)]'
+              : 'border-cyan-400 text-cyan-200 shadow-[0_0_16px_rgba(34,211,238,0.8)]'
+          } font-bold text-[10px] font-mono">
+            ${wp.label}
+          </div>
         </div>
       `;
       const marker = new maplibregl.Marker({ element: el })
@@ -895,7 +918,7 @@ export default function MapPane({
               onClick={() => setClickMode('start')}
               className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all cursor-pointer ${
                 clickMode === 'start'
-                  ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
+                  ? 'bg-blue-500/20 text-blue-400 font-bold border border-blue-500/30'
                   : 'text-[#8fa3b8] hover:text-slate-200 border border-transparent'
               }`}
             >
@@ -917,7 +940,7 @@ export default function MapPane({
               onClick={() => setClickMode('fence')}
               className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all cursor-pointer ${
                 clickMode === 'fence'
-                  ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
+                  ? 'bg-blue-500/20 text-blue-400 font-bold border border-blue-500/30'
                   : 'text-[#8fa3b8] hover:text-slate-200 border border-transparent'
               }`}
             >
@@ -927,8 +950,8 @@ export default function MapPane({
 
           {/* Fence drawing controls — only while in fence mode */}
           {clickMode === 'fence' && (
-            <div className="flex items-center space-x-1.5 bg-[#0d1726]/80 p-0.5 border border-amber-500/30 rounded-lg">
-              <span className="px-1.5 text-[10px] font-mono text-amber-400/80">
+            <div className="flex items-center space-x-1.5 bg-[#0d1726]/80 p-0.5 border border-blue-500/30 rounded-lg">
+              <span className="px-1.5 text-[10px] font-mono text-blue-400/80">
                 {fenceDraft.length > 0
                   ? `${fenceDraft.length} vertex${fenceDraft.length === 1 ? '' : 'es'}`
                   : geofence.length >= 3 ? 'fence active' : 'click map to draw'}
@@ -939,7 +962,7 @@ export default function MapPane({
                 disabled={fenceDraft.length < 3}
                 className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all ${
                   fenceDraft.length >= 3
-                    ? 'bg-amber-500/25 text-amber-300 font-bold border border-amber-500/40 cursor-pointer'
+                    ? 'bg-blue-500/25 text-blue-300 font-bold border border-blue-500/40 cursor-pointer'
                     : 'text-slate-600 border border-transparent cursor-not-allowed'
                 }`}
               >
@@ -996,10 +1019,10 @@ export default function MapPane({
           <form 
             onSubmit={handleSearch} 
             className={`relative flex items-center bg-[#0a1220]/90 border rounded-xl px-2.5 py-1.5 shadow-[0_0_15px_rgba(30,188,189,0.2)] backdrop-blur-md transition-colors ${
-              clickMode === 'start' ? 'border-amber-500/50' : 'border-[#1ebcbd]/30'
+              clickMode === 'start' ? 'border-blue-500/50' : 'border-[#1ebcbd]/30'
             }`}
           >
-            <Search className={`w-3.5 h-3.5 mr-2 shrink-0 ${clickMode === 'start' ? 'text-amber-400' : 'text-[#1ebcbd]'}`} />
+            <Search className={`w-3.5 h-3.5 mr-2 shrink-0 ${clickMode === 'start' ? 'text-blue-400' : 'text-[#1ebcbd]'}`} />
             <input
               type="text"
               placeholder={clickMode === 'start' ? "Search starting location / city..." : "Search target delivery zone..."}
@@ -1011,7 +1034,7 @@ export default function MapPane({
               className="bg-transparent border-none text-white focus:outline-none text-[11px] w-full placeholder-slate-500"
             />
             {isSearching ? (
-              <Loader2 className={`w-3.5 h-3.5 animate-spin shrink-0 ml-1 ${clickMode === 'start' ? 'text-amber-400' : 'text-[#1ebcbd]'}`} />
+              <Loader2 className={`w-3.5 h-3.5 animate-spin shrink-0 ml-1 ${clickMode === 'start' ? 'text-blue-400' : 'text-[#1ebcbd]'}`} />
             ) : searchQuery ? (
               <button
                 type="button"
@@ -1035,7 +1058,7 @@ export default function MapPane({
                 onClick={() => setShowDropdown(false)} 
               />
               <div className={`absolute right-0 left-0 mt-1.5 bg-[#0a1220]/95 border rounded-xl shadow-2xl overflow-hidden max-h-56 overflow-y-auto backdrop-blur-lg z-[1004] ${
-                clickMode === 'start' ? 'border-amber-500/40' : 'border-[#1ebcbd]/35'
+                clickMode === 'start' ? 'border-blue-500/40' : 'border-[#1ebcbd]/35'
               }`}>
                 {searchError ? (
                   <div className="p-3 text-[10px] text-rose-400 text-center uppercase tracking-wider">
@@ -1049,7 +1072,7 @@ export default function MapPane({
                       onClick={() => handleSelectLocation(loc)}
                       className="w-full text-left p-2.5 text-[10px] text-[#b8c5d4] hover:bg-[#1ebcbd]/15 hover:text-[#8ae8e9] border-b border-[#1ebcbd]/10 transition-colors flex items-start space-x-2 last:border-b-0 cursor-pointer"
                     >
-                      <MapPin className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${clickMode === 'start' ? 'text-amber-500' : 'text-emerald-400'}`} />
+                      <MapPin className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${clickMode === 'start' ? 'text-blue-500' : 'text-emerald-400'}`} />
                       <div className="flex-1 truncate">
                         <div className="font-bold text-white truncate">{loc.name || 'Location ' + (idx + 1)}</div>
                         <div className="text-[#8fa3b8] truncate text-[9px] mt-0.5">{loc.display_name}</div>
@@ -1071,14 +1094,14 @@ export default function MapPane({
             {/* Legend Indicators overlay */}
             <div className="absolute top-3 left-3 z-10 bg-[#0a1220]/90 border border-[#1ebcbd]/15 p-3 rounded-xl font-mono text-[9.5px] text-[#b8c5d4] space-y-1.5 shadow-xl max-w-[210px] backdrop-blur-md">
               <div className="text-[#1ebcbd] font-bold border-b border-[#1ebcbd]/15 pb-1 mb-1 text-[10px] uppercase tracking-wide">Radar Vector Legend</div>
-              <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-amber-500 mr-2 shrink-0" /> UAV Base Transceiver (S)</div>
+              <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 mr-2 shrink-0" /> UAV Base Transceiver (S)</div>
               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 mr-2 shrink-0 animate-pulse" /> Delivery Destination (D)</div>
-              <div className="flex items-center"><div className="w-3 h-0.5 bg-amber-600 mr-2 shrink-0" /> Standard Path (Direct/Unsafe)</div>
+              <div className="flex items-center"><div className="w-3 h-0.5 bg-blue-600 mr-2 shrink-0" /> Standard Path (Direct/Unsafe)</div>
               <div className="flex items-center"><div className="w-3 h-0.5 bg-[#1ebcbd] mr-2 shrink-0" /> Optimized Path (Safe/Avoided)</div>
 
               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-rose-500/20 border border-rose-500 animate-pulse mr-2 shrink-0" /> Dynamic Obstacle Zone</div>
               {avoidanceActive && (
-                <div className="pt-1 border-t border-slate-800 text-amber-400 font-bold animate-pulse uppercase flex items-center shrink-0">
+                <div className="pt-1 border-t border-slate-800 text-blue-400 font-bold animate-pulse uppercase flex items-center shrink-0">
                   <ShieldAlert className="w-3.5 h-3.5 mr-1" /> LiDAR evasive lock on
                 </div>
               )}
@@ -1196,7 +1219,7 @@ export default function MapPane({
                     })
                     .join(' ')}
                   fill="none"
-                  stroke="#d97706"
+                  stroke="#2f66e0"
                   strokeWidth="1.5"
                   strokeDasharray="4,3"
                   className="transition-all duration-300"
@@ -1223,7 +1246,7 @@ export default function MapPane({
               <text
                 x={`${lngToX(startLoc.lng)}%`}
                 y={`${latToY(startLoc.lat) + 3.5}%`}
-                fill="#f59e0b"
+                fill="#3f7ef7"
                 fontSize="9"
                 fontFamily="monospace"
                 textAnchor="middle"
@@ -1237,7 +1260,7 @@ export default function MapPane({
                 cx={`${lngToX(startLoc.lng)}%`}
                 cy={`${latToY(startLoc.lat)}%`}
                 r="7"
-                fill="#ffb020"
+                fill="#5996FF"
                 stroke="#ffffff"
                 strokeWidth="1.5"
               />
@@ -1319,6 +1342,7 @@ export default function MapPane({
               className="w-full h-full text-[#02131c]" 
               style={{ background: '#0b1329', minHeight: '450px' }} 
             />
+            <div className="absolute inset-0 pointer-events-none z-[999]" style={{ boxShadow: 'inset 0 0 140px 50px rgba(1,8,18,0.85)' }} />
             {/* Live distance to the destination while flying -- makes it
                 visible that the drone is CONVERGING on the target, not
                 wandering (the counter falls every second). */}

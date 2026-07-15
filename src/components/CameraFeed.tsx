@@ -241,7 +241,7 @@ export default function CameraFeed({
       {/* Header bar */}
       <div className="bg-[#1c1c20] px-4 py-3 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 font-mono">
         <div className="flex items-center space-x-2">
-          <Camera className="w-5 h-5 text-[#ffd02c] animate-pulse" />
+          <Camera className="w-5 h-5 text-[#5996FF] animate-pulse" />
           <div>
             <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">Optical Gimbal Hub</h3>
             <p className="text-[10px] text-[#9a9aa2]">
@@ -259,7 +259,7 @@ export default function CameraFeed({
               id="btn-layout-split"
               onClick={() => setActiveLayout('split')}
               className={`px-2 py-1 rounded transition-all cursor-pointer ${
-                activeLayout === 'split' ? 'bg-[#ffd02c]/10 text-[#ffd02c] border border-[#ffd02c]/30' : 'hover:text-white'
+                activeLayout === 'split' ? 'bg-[#5996FF]/10 text-[#5996FF] border border-[#5996FF]/30' : 'hover:text-white'
               }`}
             >
               Split View
@@ -268,7 +268,7 @@ export default function CameraFeed({
               id="btn-layout-feed1"
               onClick={() => setActiveLayout('feed1')}
               className={`px-2 py-1 rounded transition-all cursor-pointer ${
-                activeLayout === 'feed1' ? 'bg-[#ffd02c]/10 text-[#ffd02c] border border-[#ffd02c]/30' : 'hover:text-white'
+                activeLayout === 'feed1' ? 'bg-[#5996FF]/10 text-[#5996FF] border border-[#5996FF]/30' : 'hover:text-white'
               }`}
             >
               Feed 1 (FPV)
@@ -277,7 +277,7 @@ export default function CameraFeed({
               id="btn-layout-feed2"
               onClick={() => setActiveLayout('feed2')}
               className={`px-2 py-1 rounded transition-all cursor-pointer ${
-                activeLayout === 'feed2' ? 'bg-[#ffd02c]/10 text-[#ffd02c] border border-[#ffd02c]/30' : 'hover:text-white'
+                activeLayout === 'feed2' ? 'bg-[#5996FF]/10 text-[#5996FF] border border-[#5996FF]/30' : 'hover:text-white'
               }`}
             >
               Feed 2 (Nav-Cam)
@@ -349,7 +349,7 @@ export default function CameraFeed({
 
             {/* Live indicator layout overlay */}
             <div className="absolute top-3 right-3 flex items-center space-x-2 bg-[#0a0a0c]/95 border border-white/10 px-2 py-1 rounded font-mono text-[9px] text-[#d1d1d6]">
-              <span className="text-[#ffd02c] font-bold">LIVE TELEM</span>
+              <span className="text-[#5996FF] font-bold">LIVE TELEM</span>
               <span className="text-[#7c7c84]">|</span>
               <span>NAV-CAM</span>
               <span className="text-[#7c7c84]">|</span>
@@ -359,7 +359,7 @@ export default function CameraFeed({
             {/* Telemetry data ticker */}
             <div className="absolute bottom-3 left-3 bg-[#141417]/85 border border-white/10 p-2 rounded-lg font-mono text-[8.5px] text-[#9a9aa2] leading-normal backdrop-blur-md">
               <div className="text-white font-bold text-[9px] uppercase tracking-wide flex items-center gap-1 mb-1">
-                <Activity className="w-3 h-3 text-[#ffd02c] animate-pulse" />
+                <Activity className="w-3 h-3 text-[#5996FF] animate-pulse" />
                 Downward Scanner Lock
               </div>
               <div>BARO: {sensors.barometerAltitudeM.toFixed(1)}m | LIDAR: {sensors.lidarDistanceM.toFixed(2)}m</div>
@@ -375,7 +375,7 @@ export default function CameraFeed({
         {/* Zoom adjust */}
         <div className="flex items-center space-x-3 bg-[#0a0a0c]/90 p-1.5 rounded-xl border border-white/5">
           <span className="text-[10px] text-[#9a9aa2] font-bold uppercase flex items-center gap-1.5">
-            <ZoomIn className="w-3.5 h-3.5 text-[#ffd02c]" />
+            <ZoomIn className="w-3.5 h-3.5 text-[#5996FF]" />
             Zoom Range
           </span>
           <div className="flex items-center space-x-2">
@@ -385,7 +385,7 @@ export default function CameraFeed({
                 onClick={() => setZoomLevel(z)}
                 className={`h-6 w-8 rounded text-[10px] font-bold border cursor-pointer transition-all ${
                   zoomLevel === z 
-                    ? 'bg-[#ffd02c]/10 border-[#ffd02c]/35 text-[#ffd02c]' 
+                    ? 'bg-[#5996FF]/10 border-[#5996FF]/35 text-[#5996FF]' 
                     : 'bg-[#141417] border-transparent text-[#7c7c84] hover:text-[#d1d1d6]'
                 }`}
               >
@@ -398,7 +398,7 @@ export default function CameraFeed({
         {/* Gimbal Controls */}
         <div className="flex items-center space-x-3 bg-[#0a0a0c]/90 p-1.5 rounded-xl border border-white/5">
           <span className="text-[10px] text-[#9a9aa2] font-bold uppercase flex items-center gap-1.5">
-            <Compass className="w-3.5 h-3.5 text-[#ffd02c] animate-spin" style={{ animationDuration: '4s' }} />
+            <Compass className="w-3.5 h-3.5 text-[#5996FF] animate-spin" style={{ animationDuration: '4s' }} />
             Gimbal Pitch: {gimbalTilt}°
           </span>
           <div className="flex items-center space-x-1.5">
@@ -408,7 +408,7 @@ export default function CameraFeed({
               max={15}
               value={gimbalTilt}
               onChange={(e) => setGimbalTilt(parseInt(e.target.value))}
-              className="w-24 h-1.5 bg-[#2a2a2f] rounded-lg appearance-none cursor-pointer accent-[#ffd02c] focus:outline-none"
+              className="w-24 h-1.5 bg-[#2a2a2f] rounded-lg appearance-none cursor-pointer accent-[#5996FF] focus:outline-none"
             />
           </div>
         </div>
@@ -423,8 +423,8 @@ export default function CameraFeed({
               <span>CAMERA STABLE: CONNECTED (LIVE)</span>
             </div>
           ) : (
-            <div className="flex items-center space-x-2 bg-amber-500/10 px-2.5 py-1.5 rounded-xl border border-amber-500/20 text-amber-400 font-bold uppercase tracking-wide">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+            <div className="flex items-center space-x-2 bg-blue-500/10 px-2.5 py-1.5 rounded-xl border border-blue-500/20 text-blue-400 font-bold uppercase tracking-wide">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
               <span>CAMERA: SIMULATED (ROS2 OFFLINE)</span>
             </div>
           )}
@@ -432,7 +432,7 @@ export default function CameraFeed({
           <button
             onClick={() => setShowGrid(!showGrid)}
             className={`px-2.5 py-1.5 border rounded-lg hover:text-white transition-all cursor-pointer font-bold uppercase tracking-wide ${
-              showGrid ? 'bg-[#ffd02c]/10 border-[#ffd02c]/30 text-[#ffd02c]' : 'bg-[#141417] border-white/5 text-[#7c7c84]'
+              showGrid ? 'bg-[#5996FF]/10 border-[#5996FF]/30 text-[#5996FF]' : 'bg-[#141417] border-white/5 text-[#7c7c84]'
             }`}
           >
             HUD Overlay

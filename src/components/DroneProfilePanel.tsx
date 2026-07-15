@@ -52,15 +52,15 @@ export default function DroneProfilePanel({ mode, onModeChange }: DroneProfilePa
     <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <Settings2 className="w-4 h-4 text-[#ffd02c]" />
+          <Settings2 className="w-4 h-4 text-[#5996FF]" />
           <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">Drone Profile & Mode</h3>
         </div>
         <button
           onClick={toggleMode}
           className={`px-3 py-1 rounded-lg text-[10px] font-mono font-bold uppercase cursor-pointer border flex items-center gap-1.5 ${
             mode === 'sim'
-              ? 'bg-[#ffd02c]/10 border-[#ffd02c]/30 text-[#ffd02c]'
-              : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+              ? 'bg-[#5996FF]/10 border-[#5996FF]/30 text-[#5996FF]'
+              : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
           }`}
         >
           <Cpu className="w-3.5 h-3.5" /> {mode === 'sim' ? 'SIM MODE' : 'HARDWARE MODE'}
@@ -84,7 +84,7 @@ export default function DroneProfilePanel({ mode, onModeChange }: DroneProfilePa
       <button
         onClick={handleSave}
         disabled={saving}
-        className="w-full py-2 rounded-xl text-xs font-bold uppercase bg-[#ffd02c] text-black hover:bg-[#ffdd55] cursor-pointer disabled:opacity-50"
+        className="w-full py-2 rounded-xl text-xs font-bold uppercase bg-[#5996FF] text-black hover:bg-[#ffdd55] cursor-pointer disabled:opacity-50"
       >
         {saving ? 'Saving...' : 'Save profile & recompute estimate'}
       </button>
@@ -93,14 +93,14 @@ export default function DroneProfilePanel({ mode, onModeChange }: DroneProfilePa
         <div className="bg-[#0a0a0c]/90 p-3 rounded-xl border border-white/10 text-[10.5px] font-mono space-y-1">
           {estimate.flight_time_min !== null ? (
             <>
-              <div className="flex justify-between"><span className="text-[#9a9aa2]">Est. flight time</span><span className="text-[#ffd02c] font-bold">{estimate.flight_time_min} min</span></div>
-              <div className="flex justify-between"><span className="text-[#9a9aa2]">Est. max range</span><span className="text-[#ffd02c] font-bold">{estimate.range_m} m</span></div>
+              <div className="flex justify-between"><span className="text-[#9a9aa2]">Est. flight time</span><span className="text-[#5996FF] font-bold">{estimate.flight_time_min} min</span></div>
+              <div className="flex justify-between"><span className="text-[#9a9aa2]">Est. max range</span><span className="text-[#5996FF] font-bold">{estimate.range_m} m</span></div>
               <div className="flex justify-between"><span className="text-[#9a9aa2]">Hover current</span><span className="text-[#d1d1d6]">{estimate.hover_current_a} A</span></div>
             </>
           ) : (
-            <div className="text-amber-400">{estimate.note}</div>
+            <div className="text-blue-400">{estimate.note}</div>
           )}
-          <div className="flex items-start gap-1.5 text-amber-400/90 pt-1 border-t border-white/5 mt-1">
+          <div className="flex items-start gap-1.5 text-blue-400/90 pt-1 border-t border-white/5 mt-1">
             <Zap className="w-3 h-3 shrink-0 mt-0.5" />
             <span>{estimate.note}</span>
           </div>

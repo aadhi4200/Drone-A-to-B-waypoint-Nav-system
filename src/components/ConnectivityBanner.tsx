@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ShieldAlert, CheckCircle2 } from 'lucide-react';
 import { NodeStatusMessage } from '../types';
 
@@ -25,11 +25,47 @@ function describeReason(reason: string): string {
 }
 
 export default function ConnectivityBanner({ nodeStatus, wsConnected }: ConnectivityBannerProps) {
+  // One-time "link restored" flash: shown for a few seconds only when the
+  // socket transitions from down back to up, then falls through to the
+  // normal status banners.
+  const wasDownRef = useRef(false);
+  const [justReconnected, setJustReconnected] = useState(false);
+  useEffect(() => {
+    if (!wsConnected) {
+      wasDownRef.current = true;
+      setJustReconnected(false);
+    } else if (wasDownRef.current) {
+      wasDownRef.current = false;
+      setJustReconnected(true);
+      const t = setTimeout(() => setJustReconnected(false), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [wsConnected]);
+
   if (!wsConnected) {
     return (
-      <div className="p-3 bg-[#141417]/60 border border-white/10 rounded-xl text-[#9a9aa2] text-[10.5px] font-mono flex items-center gap-2">
-        <ShieldAlert className="w-4 h-4 shrink-0 text-[#7c7c84]" />
-        Dashboard link down — monitoring only, this does not affect the drone. Reconnecting...
+      <div className="relative overflow-hidden p-3 bg-[#141417]/60 border border-white/10 rounded-xl text-[#9a9aa2] text-[10.5px] font-mono flex items-center gap-2">
+        <div
+          className="absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent pointer-events-none"
+          style={{ animation: 'banner-shimmer 2.4s linear infinite' }}
+        />
+        <ShieldAlert className="w-4 h-4 shrink-0 text-[#7c7c84] animate-pulse" />
+        <span>
+          Dashboard link down — monitoring only, this does not affect the drone. Reconnecting
+          <span className="reconnect-dots"><span>.</span><span>.</span><span>.</span></span>
+        </span>
+      </div>
+    );
+  }
+
+  if (justReconnected) {
+    return (
+      <div
+        className="p-3 bg-emerald-950/30 border border-emerald-500/40 rounded-xl text-emerald-300 text-[10.5px] font-mono flex items-center gap-2 uppercase font-bold"
+        style={{ animation: 'banner-pop 0.45s ease-out, banner-glow-fade 2.8s ease-out forwards' }}
+      >
+        <CheckCircle2 className="w-4 h-4 shrink-0" style={{ animation: 'check-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+        Dashboard link restored — live telemetry resumed
       </div>
     );
   }
