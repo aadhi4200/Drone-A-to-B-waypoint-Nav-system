@@ -166,6 +166,7 @@ export default function MapPane({
   const droneRotateNodeRef = useRef<HTMLElement | null>(null);
   const obstacleMarkersRef = useRef<maplibregl.Marker[]>([]);
   const waypointMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const segmentLabelMarkersRef = useRef<maplibregl.Marker[]>([]);
 
   // Smooth drone-marker movement (Feature 8/9): lerp toward each new position
   // over a short window instead of snapping, the way ride-tracking UIs
@@ -327,7 +328,7 @@ export default function MapPane({
         source: 'direct-path',
         paint: {
           'line-color': '#5b7a9c',
-          'line-width': 1.5,
+          'line-width': 3,
           'line-dasharray': [3, 2]
         }
       });
@@ -342,8 +343,8 @@ export default function MapPane({
         source: 'planned-path',
         paint: {
           'line-color': '#D1D4DE',
-          'line-width': 2.5,
-          'line-opacity': 0.5,
+          'line-width': 5,
+          'line-opacity': 0.9,
           'line-dasharray': [2, 2]
         }
       });
@@ -515,6 +516,8 @@ export default function MapPane({
       obstacleMarkersRef.current = [];
       waypointMarkersRef.current.forEach(m => m.remove());
       waypointMarkersRef.current = [];
+      segmentLabelMarkersRef.current.forEach(m => m.remove());
+      segmentLabelMarkersRef.current = [];
       if (droneAnimFrameRef.current !== null) cancelAnimationFrame(droneAnimFrameRef.current);
       setMapLoaded(false);
     };
@@ -672,7 +675,12 @@ export default function MapPane({
       });
     }
 
-    // Sync planned path
+    // Sync planned path. Multi-stop missions have no plannedPath (App.tsx
+    // clears it on the first real waypoint), so build the display route as
+    // HOME -> B -> C... from the waypoint list in that mode.
+    const routePoints: LatLng[] = waypoints.length > 0
+      ? [{ lat: startLoc.lat, lng: startLoc.lng }, ...waypoints.map(w => ({ lat: w.lat, lng: w.lng }))]
+      : plannedPath;
     const plannedSource = map.getSource('planned-path') as maplibregl.GeoJSONSource;
     if (plannedSource) {
       plannedSource.setData({
@@ -680,7 +688,7 @@ export default function MapPane({
         properties: {},
         geometry: {
           type: 'LineString',
-          coordinates: plannedPath.map(p => [p.lng, p.lat])
+          coordinates: routePoints.map(p => [p.lng, p.lat])
         }
       });
     }
@@ -770,7 +778,31 @@ export default function MapPane({
       obstacleMarkersRef.current.push(labelMarker);
     });
 
-  }, [directPath, plannedPath, traveledPath, obstacles, geofence, fenceDraft, mapLoaded]);
+    // Per-leg distance labels at each segment midpoint (same
+    // equirectangular approximation as the rest of this file)
+    segmentLabelMarkersRef.current.forEach(m => m.remove());
+    segmentLabelMarkersRef.current = [];
+    for (let i = 0; i < routePoints.length - 1; i++) {
+      const a = routePoints[i];
+      const b = routePoints[i + 1];
+      const dNorth = (b.lat - a.lat) * 110540;
+      const dEast = (b.lng - a.lng) * 111320 * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+      const dist = Math.sqrt(dNorth * dNorth + dEast * dEast);
+      const text = dist >= 1000 ? `${(dist / 1000).toFixed(2)} km` : `${Math.round(dist)} m`;
+      const el = document.createElement('div');
+      el.className = 'select-none pointer-events-none';
+      el.innerHTML = `
+        <div class="text-[9px] font-mono font-bold text-sky-200 px-1.5 py-0.5 bg-[#0a1220]/90 rounded border border-sky-400/30 whitespace-nowrap shadow-md">
+          ${text}
+        </div>
+      `;
+      const labelMarker = new maplibregl.Marker({ element: el })
+        .setLngLat([(a.lng + b.lng) / 2, (a.lat + b.lat) / 2])
+        .addTo(map);
+      segmentLabelMarkersRef.current.push(labelMarker);
+    }
+
+  }, [directPath, plannedPath, traveledPath, obstacles, geofence, fenceDraft, waypoints, startLoc.lat, startLoc.lng, mapLoaded]);
 
   // Sync mission-stop (B/C/D...) markers — Feature 1/2
   useEffect(() => {
