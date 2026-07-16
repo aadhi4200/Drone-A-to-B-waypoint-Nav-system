@@ -236,6 +236,7 @@ def upload(mission: MissionUpload):
              "marker_id": w.marker_id,
              "land_mode": mission.land_mode or "aruco",
              "wait_s": mission.wait_s} for w in mission.waypoints]
+        ros_node.last_speed_ms = mission.speed_ms
     _require_all_clear()
 
     if ros_node and ros_node.home_lat is not None:
@@ -416,6 +417,10 @@ def status():
             # non-null only while a mission is being recorded — lets a
             # reconnecting dashboard restore the flown trail from the DB
             "mission_id":    ros_node.current_mission_id,
+            # the last uploaded plan — lets a page opened mid-flight rebuild
+            # the mission stops instead of booting into an empty planner
+            "waypoints":     ros_node.uploaded_waypoints,
+            "speed_ms":      ros_node.last_speed_ms,
         }
     return {"mission_state": "DISCONNECTED"}
 
@@ -750,6 +755,7 @@ class BridgeNode(Node):
         # Mode + uploaded waypoints (Features 4/5, 9's geofence check)
         self.mode = db.get_config("mode", "sim")
         self.uploaded_waypoints = []
+        self.last_speed_ms = None
 
         # WebSocket bookkeeping — loop is set from the FastAPI startup hook
         self.ws_clients = set()

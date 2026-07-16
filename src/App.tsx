@@ -477,11 +477,46 @@ export default function App() {
   // from the persisted travel log so the map shows the whole route, not just
   // what happened after reconnect. Purely cosmetic: never blocks anything.
   const seededMissionRef = useRef<number | null>(null);
+  const hydratedRef = useRef(false); // active-mission hydration runs once per page load
   useEffect(() => {
     if (!wsConnected) return;
     (async () => {
       try {
         const status = await getMissionStatus();
+
+        // ── Active-mission hydration (page reopened mid-flight) ──────────
+        // A fresh tab boots with an empty planner and IDLE status even though
+        // the drone is still flying. Rebuild the mission stops and running
+        // status from the backend's stored upload so the UI resumes the
+        // mission instead of looking brand new.
+        const st = (status as any).mission_state as string | undefined;
+        const missionAirborne = st !== undefined &&
+          !['IDLE', 'MISSION_COMPLETE', 'MISSION_ABORT', 'DISCONNECTED'].includes(st);
+        if (missionAirborne && !hydratedRef.current) {
+          hydratedRef.current = true;
+          const wps: any[] = (status as any).waypoints ?? [];
+          const restored: MissionWaypoint[] = wps
+            .filter(w => w.label && w.label !== 'A')
+            .map(w => ({
+              label: w.label, lat: w.lat, lng: w.lon,
+              alt: w.alt ?? TARGET_ALTITUDE_M,
+              markerId: w.marker_id ?? undefined,
+            }));
+          if (restored.length > 0) {
+            setWaypoints(restored);
+            // Future stops must not reuse a restored label.
+            nextStopLetter.current = Math.max(
+              ...restored.map(w => w.label.charCodeAt(0) - 'B'.charCodeAt(0) + 1));
+            const first = wps[0];
+            if (first?.land_mode === 'aruco' || first?.land_mode === 'gps') setLandMode(first.land_mode);
+            if (typeof first?.wait_s === 'number') setWaitS(first.wait_s);
+          }
+          if (typeof (status as any).speed_ms === 'number') setSpeedMs((status as any).speed_ms);
+          setFlightState(FlightState.EN_ROUTE);
+          addNewLogEntry(FlightState.EN_ROUTE,
+            `RESUME: Reconnected to active mission (${st}) — ${restored.length} stop(s) restored, planning locked.`);
+        }
+
         const mid: number | null = (status as any).mission_id ?? null;
         if (mid == null || seededMissionRef.current === mid) return;
         seededMissionRef.current = mid;
