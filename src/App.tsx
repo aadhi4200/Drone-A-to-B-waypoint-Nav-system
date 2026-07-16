@@ -641,7 +641,22 @@ export default function App() {
   };
 
   // ── Mission stops (map-click-driven, Feature 1/2) ────
+  // A mission is "active" from launch until the ROS state machine returns to
+  // rest. Stops added mid-flight were silently ignored by the drone (the
+  // waypoint upload already happened at launch), so planning is locked.
+  // wsMissionState is a message object — the state string lives in its
+  // .mission_state field. When the backend state is known it wins; the local
+  // flightState is only the fallback while the socket is down.
+  const rosMissionState = wsMissionState?.mission_state;
+  const missionActive = rosMissionState !== undefined
+    ? !['IDLE', 'MISSION_COMPLETE', 'MISSION_ABORT'].includes(rosMissionState)
+    : flightState === FlightState.EN_ROUTE;
+
   const addWaypointFromMap = (loc: LatLng) => {
+    if (missionActive) {
+      addNewLogEntry(flightState, 'Waypoints are locked while a mission is active — new stop ignored. Wait for the mission to finish (or reset) to plan again.');
+      return;
+    }
     const label = String.fromCharCode('B'.charCodeAt(0) + nextStopLetter.current);
     nextStopLetter.current += 1;
     setWaypoints(prev => {
@@ -663,6 +678,12 @@ export default function App() {
 
   const removeWaypoint = (label: string) => {
     setWaypoints(prev => prev.filter(w => w.label !== label));
+  };
+
+  const clearAllWaypoints = () => {
+    if (waypoints.length === 0) return;
+    setWaypoints([]);
+    addNewLogEntry(flightState, 'Mission stops reset — click the map to plan a new route.');
   };
 
   const generateWaypointMarker = async (label: string) => {
@@ -939,6 +960,7 @@ export default function App() {
                 onSetStartLoc={setStartLoc}
                 onSetDestLoc={setDestLoc}
                 onAddWaypoint={addWaypointFromMap}
+                planningLocked={missionActive}
                 waypoints={waypoints}
                 traveledPath={traveledPath}
                 geofence={geofence}
@@ -995,6 +1017,8 @@ export default function App() {
               waypoints={waypoints}
               onUpdateAlt={updateWaypointAlt}
               onRemove={removeWaypoint}
+              onClearAll={clearAllWaypoints}
+              missionActive={missionActive}
               onGenerateMarker={generateWaypointMarker}
               speedMs={speedMs}
               onSetSpeedMs={setSpeedMs}

@@ -15,6 +15,11 @@ interface MapPaneProps {
   onSetStartLoc: (loc: LatLng) => void;
   onSetDestLoc: (loc: LatLng | null) => void;
   onAddWaypoint?: (loc: LatLng) => void;
+  // While a mission is active, start/dest placement is locked (clicks and
+  // toolbar) — the drone flies the waypoints uploaded at launch, so stops
+  // added mid-flight would be silently ignored. Fence editing stays allowed
+  // (safety config, same policy as the backend).
+  planningLocked?: boolean;
   waypoints?: MissionWaypoint[];
   traveledPath?: LatLng[];
   plannedPath: LatLng[];
@@ -64,6 +69,7 @@ export default function MapPane({
   dronePos,
   obstacles,
   flightState,
+  planningLocked = false,
   onSetStartLoc,
   onSetDestLoc,
   onAddWaypoint,
@@ -253,6 +259,12 @@ export default function MapPane({
     onAddWaypointRef.current = onAddWaypoint;
   }, [onAddWaypoint]);
 
+  // Ref mirror so the once-bound map click handler sees the live value.
+  const planningLockedRef = useRef(planningLocked);
+  useEffect(() => {
+    planningLockedRef.current = planningLocked;
+  }, [planningLocked]);
+
   const onFenceVertexRef = useRef(onFenceVertex);
   useEffect(() => {
     onFenceVertexRef.current = onFenceVertex;
@@ -305,6 +317,9 @@ export default function MapPane({
       };
       if (clickModeRef.current === 'fence') {
         onFenceVertexRef.current?.(roundedCoord);
+      } else if (planningLockedRef.current) {
+        // Mission active — placement clicks ignored (App also gates and logs).
+        return;
       } else if (clickModeRef.current === 'start') {
         onSetStartLoc(roundedCoord);
       } else {
@@ -613,12 +628,18 @@ export default function MapPane({
       el.className = 'custom-drone-icon';
       el.innerHTML = `
         <div id="maplibre-drone-wrapper" class="relative flex items-center justify-center h-10 w-10">
-          <div class="absolute -inset-2.5 rounded-full border border-[#1ebcbd]/25"></div>
           <div class="absolute -inset-1 rounded-full border border-[#1ebcbd]/40 animate-ping"></div>
-          <div class="relative flex items-center justify-center p-2 rounded-full bg-[#0a1220] border-2 border-[#1ebcbd] shadow-[0_0_15px_rgba(30,188,189,0.6)] text-white font-bold h-10 w-10 origin-center transition-all" style="transform: rotate(${rot}deg);">
-            <div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid #ef4444;"></div>
-            <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <path d="M12 2 L19.5 21 L12 16.6 L4.5 21 Z"/>
+          <div class="relative flex items-center justify-center h-10 w-10 origin-center transition-all" style="transform: rotate(${rot}deg); filter: drop-shadow(0 0 5px rgba(255,255,255,0.5)) drop-shadow(0 1px 3px rgba(0,0,0,0.6));">
+            <div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #ef4444;"></div>
+            <svg class="w-10 h-10" viewBox="0 0 64 64" fill="none">
+              <circle cx="15" cy="15" r="9.5" stroke="#2e75b6" stroke-width="6"/>
+              <circle cx="49" cy="15" r="9.5" stroke="#2e75b6" stroke-width="6"/>
+              <circle cx="15" cy="49" r="9.5" stroke="#2e75b6" stroke-width="6"/>
+              <circle cx="49" cy="49" r="9.5" stroke="#2e75b6" stroke-width="6"/>
+              <line x1="15" y1="15" x2="49" y2="49" stroke="#37474f" stroke-width="15" stroke-linecap="round"/>
+              <line x1="49" y1="15" x2="15" y2="49" stroke="#37474f" stroke-width="15" stroke-linecap="round"/>
+              <circle cx="32" cy="32" r="12" fill="#37474f"/>
+              <circle cx="32" cy="32" r="4.5" fill="#ffffff"/>
             </svg>
           </div>
         </div>
@@ -890,6 +911,8 @@ export default function MapPane({
 
     if (clickMode === 'fence') {
       onFenceVertex?.(roundedCoord);
+    } else if (planningLocked) {
+      return;
     } else if (clickMode === 'start') {
       onSetStartLoc(roundedCoord);
     } else {
@@ -916,10 +939,14 @@ export default function MapPane({
             <button
               id="btn-click-start"
               onClick={() => setClickMode('start')}
-              className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all cursor-pointer ${
-                clickMode === 'start'
-                  ? 'bg-blue-500/20 text-blue-400 font-bold border border-blue-500/30'
-                  : 'text-[#8fa3b8] hover:text-slate-200 border border-transparent'
+              disabled={planningLocked}
+              title={planningLocked ? 'Locked — mission in progress' : undefined}
+              className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all ${
+                planningLocked
+                  ? 'text-slate-600 border border-transparent cursor-not-allowed opacity-60'
+                  : clickMode === 'start'
+                    ? 'bg-blue-500/20 text-blue-400 font-bold border border-blue-500/30 cursor-pointer'
+                    : 'text-[#8fa3b8] hover:text-slate-200 border border-transparent cursor-pointer'
               }`}
             >
               Start Coords
@@ -927,10 +954,14 @@ export default function MapPane({
             <button
               id="btn-click-dest"
               onClick={() => setClickMode('dest')}
-              className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all cursor-pointer ${
-                clickMode === 'dest'
-                  ? 'bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30'
-                  : 'text-[#8fa3b8] hover:text-slate-200 border border-transparent'
+              disabled={planningLocked}
+              title={planningLocked ? 'Locked — mission in progress' : undefined}
+              className={`px-2.5 py-1 rounded text-[10.5px] font-mono leading-none transition-all ${
+                planningLocked
+                  ? 'text-slate-600 border border-transparent cursor-not-allowed opacity-60'
+                  : clickMode === 'dest'
+                    ? 'bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30 cursor-pointer'
+                    : 'text-[#8fa3b8] hover:text-slate-200 border border-transparent cursor-pointer'
               }`}
             >
               Dest Coords
@@ -947,6 +978,12 @@ export default function MapPane({
               Fence
             </button>
           </div>
+
+          {planningLocked && (
+            <span className="px-2 py-1 rounded-lg text-[9.5px] font-mono uppercase text-amber-400/90 bg-amber-500/10 border border-amber-500/25">
+              Mission active — planning locked
+            </span>
+          )}
 
           {/* Fence drawing controls — only while in fence mode */}
           {clickMode === 'fence' && (

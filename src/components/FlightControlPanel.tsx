@@ -1,5 +1,6 @@
-import React from 'react';
-import { Play, RotateCcw, ShieldAlert, Zap, Radio, PlaneTakeoff, HelpCircle, Compass, Anchor, AlertTriangle, BatteryCharging, Power, MapPin, Crosshair, Timer, Home } from 'lucide-react';
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Play, RotateCcw, ShieldAlert, Zap, Radio, PlaneTakeoff, HelpCircle, Compass, Anchor, AlertTriangle, BatteryCharging, Power, MapPin, Crosshair, Timer, Home, ChevronsRight, X } from 'lucide-react';
 import { LatLng, BatteryState, SignalState, FlightState } from '../types';
 
 interface FlightControlPanelProps {
@@ -71,6 +72,26 @@ export default function FlightControlPanel({
   const canPlan = startLoc && destLoc;
   const canLaunch = startLoc && (destLoc || waypointCount > 0) && allClear
     && (flightState === FlightState.IDLE || flightState === FlightState.PLANNING);
+
+  // Slide-to-launch confirmation modal: the Launch button opens it, and the
+  // mission only starts once the slider is dragged all the way across —
+  // a deliberate two-step action so a stray click can't launch the drone.
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
+  const [slidePct, setSlidePct] = useState(0);
+
+  const closeLaunchModal = () => {
+    setShowLaunchModal(false);
+    setSlidePct(0);
+  };
+
+  const handleSlideRelease = () => {
+    if (slidePct >= 95) {
+      closeLaunchModal();
+      onLaunchMission();
+    } else {
+      setSlidePct(0); // not far enough — snap back
+    }
+  };
   const isArmed = droneStatus === 'ARMED' || droneStatus === 'AIRBORNE' || droneStatus === 'LANDING';
 
   // Signal status descriptor Helper
@@ -414,7 +435,7 @@ export default function FlightControlPanel({
           <button
             id="btn-launch-delivery"
             disabled={!canLaunch}
-            onClick={onLaunchMission}
+            onClick={() => setShowLaunchModal(true)}
             className={`py-2.5 px-3 rounded-xl text-xs font-bold font-sans flex items-center justify-center space-x-1 border transition-all cursor-pointer ${
               canLaunch
                 ? 'bg-[#5996FF] border-transparent text-black hover:bg-[#ffdd55] shadow-md shadow-black/40'
@@ -476,6 +497,84 @@ export default function FlightControlPanel({
           </div>
         )}
       </div>
+
+      {/* Slide-to-launch confirmation modal — rendered via portal onto
+          document.body: the panel root's backdrop-filter makes it a CSS
+          containing block, which would otherwise trap (and its overflow
+          clip) this fixed-position overlay. */}
+      {showLaunchModal && createPortal(
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={closeLaunchModal}
+        >
+          <div
+            className="bg-[#141417] border border-white/10 rounded-2xl p-5 w-[340px] space-y-4 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <PlaneTakeoff className="w-4 h-4 text-[#5996FF]" />
+                <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">Confirm Mission Launch</h3>
+              </div>
+              <button onClick={closeLaunchModal} className="text-[#7c7c84] hover:text-white cursor-pointer" title="Cancel">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-[#0a0a0c]/90 rounded-xl border border-white/10 p-3 space-y-1.5 text-[10.5px] font-mono">
+              <div className="flex justify-between">
+                <span className="text-[#7c7c84] uppercase">Mission stops</span>
+                <span className="text-white font-bold">{waypointCount > 0 ? `${waypointCount} waypoint(s)` : 'direct A → B'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#7c7c84] uppercase">Drone status</span>
+                <span className="text-white font-bold">{droneStatus || 'UNKNOWN'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#7c7c84] uppercase">Systems</span>
+                <span className={allClear ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                  {allClear ? 'ALL CLEAR' : 'NOT READY'}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-[9.5px] text-[#7c7c84] font-mono leading-relaxed">
+              Once launched, waypoint planning is locked until the mission completes. Slide all the way to start the mission.
+            </p>
+
+            {/* Slide to launch */}
+            <div className="relative h-12 rounded-xl bg-[#0a0a0c] border border-white/10 overflow-hidden select-none">
+              <div
+                className="absolute inset-y-0 left-0 bg-[#5996FF]/25 border-r border-[#5996FF]/40"
+                style={{ width: `${slidePct}%`, transition: slidePct === 0 ? 'width 200ms ease' : 'none' }}
+              />
+              <div className="absolute inset-0 flex items-center justify-center space-x-1.5 text-[10px] font-mono uppercase tracking-widest text-[#9a9aa2] pointer-events-none">
+                <span>{slidePct >= 95 ? 'Release to launch' : 'Slide to launch'}</span>
+                <ChevronsRight className="w-3.5 h-3.5 animate-pulse" />
+              </div>
+              <div
+                className="absolute inset-y-1 flex items-center justify-center w-10 rounded-lg bg-[#5996FF] text-black shadow-md pointer-events-none"
+                style={{ left: `calc(${slidePct}% * 0.86)`, transition: slidePct === 0 ? 'left 200ms ease' : 'none' }}
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={slidePct}
+                onChange={e => setSlidePct(Number(e.target.value))}
+                onMouseUp={handleSlideRelease}
+                onTouchEnd={handleSlideRelease}
+                onKeyUp={e => { if (e.key === 'Enter' && slidePct >= 95) handleSlideRelease(); }}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                aria-label="Slide to launch mission"
+              />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
     </div>
   );

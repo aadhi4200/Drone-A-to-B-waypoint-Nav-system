@@ -1,11 +1,15 @@
 import React from 'react';
-import { MapPin, Sparkles, Trash2, Gauge } from 'lucide-react';
+import { MapPin, Sparkles, Trash2, Gauge, RotateCcw } from 'lucide-react';
 import { MissionWaypoint } from '../types';
 
 interface WaypointListProps {
   waypoints: MissionWaypoint[];
   onUpdateAlt: (label: string, alt: number) => void;
   onRemove: (label: string) => void;
+  onClearAll: () => void;
+  // Locks the Reset button only while a mission is flying — unlike `disabled`
+  // (all-clear gate), clearing the local plan is safe whenever idle.
+  missionActive?: boolean;
   onGenerateMarker: (label: string) => void;
   speedMs: number;
   onSetSpeedMs: (v: number) => void;
@@ -19,7 +23,7 @@ interface WaypointListProps {
 }
 
 export default function WaypointList({
-  waypoints, onUpdateAlt, onRemove, onGenerateMarker,
+  waypoints, onUpdateAlt, onRemove, onClearAll, missionActive = false, onGenerateMarker,
   speedMs, onSetSpeedMs, landMode, onSetLandMode, waitS, onSetWaitS,
   mode, abortAltitudeM, disabled,
 }: WaypointListProps) {
@@ -32,7 +36,19 @@ export default function WaypointList({
             Mission Stops
           </h3>
         </div>
-        <span className="text-[9px] text-[#7c7c84] font-mono uppercase">{waypoints.length} stop(s)</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] text-[#7c7c84] font-mono uppercase">{waypoints.length} stop(s)</span>
+          {waypoints.length > 0 && (
+            <button
+              onClick={onClearAll}
+              disabled={missionActive}
+              className="flex items-center gap-1 text-[9px] font-bold font-mono uppercase text-red-400/90 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              title={missionActive ? 'Locked while a mission is flying' : 'Remove all stops and start planning over'}
+            >
+              <RotateCcw className="w-3 h-3" /> Reset
+            </button>
+          )}
+        </div>
       </div>
 
       {waypoints.length === 0 ? (
