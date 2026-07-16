@@ -73,7 +73,7 @@ export default function IMUGraph({ imu, ros2Connected }: IMUGraphProps) {
     <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-2">
-          <Activity className="w-4 h-4 text-[#ffd02c]" />
+          <Activity className="w-4 h-4 text-[#5996FF]" />
           <h3 className="font-semibold text-white tracking-wide text-xs uppercase font-display">
             IMU Stability
           </h3>
@@ -85,7 +85,7 @@ export default function IMUGraph({ imu, ros2Connected }: IMUGraphProps) {
           <button
             onClick={() => setView('attitude')}
             className={`px-2.5 py-1 rounded text-[10px] font-mono cursor-pointer ${
-              view === 'attitude' ? 'bg-[#ffd02c]/10 text-[#ffd02c] border border-[#ffd02c]/30' : 'text-[#9a9aa2]'
+              view === 'attitude' ? 'bg-[#5996FF]/10 text-[#5996FF] border border-[#5996FF]/30' : 'text-[#9a9aa2]'
             }`}
           >
             Attitude
@@ -93,7 +93,7 @@ export default function IMUGraph({ imu, ros2Connected }: IMUGraphProps) {
           <button
             onClick={() => setView('rates')}
             className={`px-2.5 py-1 rounded text-[10px] font-mono cursor-pointer ${
-              view === 'rates' ? 'bg-[#ffd02c]/10 text-[#ffd02c] border border-[#ffd02c]/30' : 'text-[#9a9aa2]'
+              view === 'rates' ? 'bg-[#5996FF]/10 text-[#5996FF] border border-[#5996FF]/30' : 'text-[#9a9aa2]'
             }`}
           >
             Rates

@@ -56,8 +56,13 @@ async function get(path: string) {
   return res.json();
 }
 
-export async function uploadWaypoints(waypoints: UploadWaypoint[], speedMs?: number) {
-  return post('/mission/upload', { waypoints, speed_ms: speedMs });
+export async function uploadWaypoints(
+  waypoints: UploadWaypoint[], speedMs?: number,
+  landMode?: 'aruco' | 'gps', waitS?: number,
+) {
+  return post('/mission/upload', {
+    waypoints, speed_ms: speedMs, land_mode: landMode, wait_s: waitS,
+  });
 }
 
 // ── Feature 1: runtime ArUco marker generation ───────────────────────────

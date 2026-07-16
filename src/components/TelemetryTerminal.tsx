@@ -32,7 +32,7 @@ export function TelemetryInsights({ logs }: TelemetryInsightsProps) {
     <div className="bg-[#141417] backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden h-[400px]">
       <div className="border-b border-white/10 pb-3 mb-4 flex justify-between items-center">
         <div className="flex items-center space-x-2">
-          <Cpu className="w-5 h-5 text-[#ffd02c] animate-pulse" />
+          <Cpu className="w-5 h-5 text-[#5996FF] animate-pulse" />
           <h4 className="font-semibold text-white tracking-wide text-sm uppercase font-display">Telemetry Insights</h4>
         </div>
         <span className="text-[10px] font-mono font-bold text-[#7c7c84]">REALTIME (1Hz)</span>
@@ -42,7 +42,7 @@ export function TelemetryInsights({ logs }: TelemetryInsightsProps) {
       <div className="space-y-2 mb-5">
         <div className="flex justify-between items-center">
           <span className="text-[11px] font-mono font-bold text-[#d1d1d6]">BATTERY SLOPE METER</span>
-          <span className="text-[11px] font-mono text-[#ffd02c] font-bold">
+          <span className="text-[11px] font-mono text-[#5996FF] font-bold">
             {logs.length > 0 ? `${logs[logs.length - 1].batteryPercentage.toFixed(1)}%` : '0.0%'}
           </span>
         </div>
@@ -87,7 +87,7 @@ export function TelemetryInsights({ logs }: TelemetryInsightsProps) {
       <div className="space-y-2">
         <div className="flex justify-between items-center">
           <span className="text-[11px] font-mono font-bold text-[#d1d1d6]">LINK RF NOISE FLOOR (dBM)</span>
-          <span className="text-[11px] font-mono text-[#ffd02c] font-bold">
+          <span className="text-[11px] font-mono text-[#5996FF] font-bold">
             {logs.length > 0 ? `${logs[logs.length - 1].signalStrengthDbm} dBm` : '-0 dBm'}
           </span>
         </div>
@@ -181,7 +181,7 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
       {/* Console Header */}
       <div className="bg-[#101014] px-4 py-3 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 backdrop-blur-md">
         <div className="flex items-center space-x-2">
-          <Terminal className="w-4 h-4 text-[#ffd02c]" />
+          <Terminal className="w-4 h-4 text-[#5996FF]" />
           <h4 className="font-semibold text-white tracking-wide text-xs uppercase font-mono">Telemetry Log Stream</h4>
           <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
         </div>
@@ -196,7 +196,7 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search..."
-              className="bg-[#1c1c20] border border-white/10 rounded-lg px-2 py-1 text-xs text-white pl-7 w-28 focus:outline-none focus:border-[#ffd02c]/40 text-[10px] font-mono h-7 transition-all"
+              className="bg-[#1c1c20] border border-white/10 rounded-lg px-2 py-1 text-xs text-white pl-7 w-28 focus:outline-none focus:border-[#5996FF]/40 text-[10px] font-mono h-7 transition-all"
             />
           </div>
 
@@ -233,7 +233,7 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
           <button
             id="btn-export-logs"
             onClick={exportToJson}
-            className="px-3 rounded-lg bg-[#ffd02c] hover:bg-[#ffdd55] text-black font-sans font-bold text-[10.5px] flex items-center transition-all h-7 cursor-pointer shadow-md shadow-black/40"
+            className="px-3 rounded-lg bg-[#5996FF] hover:bg-[#ffdd55] text-black font-sans font-bold text-[10.5px] flex items-center transition-all h-7 cursor-pointer shadow-md shadow-black/40"
           >
             <Download className="w-3.5 h-3.5 mr-1" />
             Export JSON
@@ -248,22 +248,22 @@ export function TelemetryLogStream({ logs, onClearLogs }: TelemetryLogStreamProp
             {filteredLogs.map((log, index) => (
               <div key={log.id + '-' + index} className="border-b border-white/10 pb-1 hover:bg-white/10 p-1 rounded transition-colors">
                 <span className="text-[#7c7c84] select-none mr-2">[{log.timestamp.split('T')[1].slice(0, 8)}]</span>
-                <span className="text-[#ffd02c] font-bold select-none mr-1">INGEST:</span>
+                <span className="text-[#5996FF] font-bold select-none mr-1">INGEST:</span>
                 <span className="text-white">
-                  ID=<span className="text-amber-400">{log.id}</span> | 
+                  ID=<span className="text-blue-400">{log.id}</span> | 
                   ST=<span className={`font-bold ${
                     log.flightState === FlightState.EMERGENCY_LANDING ? 'text-rose-400' :
-                    log.flightState === FlightState.EN_ROUTE ? 'text-[#ffd02c]' :
-                    log.flightState === FlightState.LANDED_SAFE ? 'text-amber-400' : 'text-[#d1d1d6]'
+                    log.flightState === FlightState.EN_ROUTE ? 'text-[#5996FF]' :
+                    log.flightState === FlightState.LANDED_SAFE ? 'text-blue-400' : 'text-[#d1d1d6]'
                   }`}>{log.flightState}</span> | 
-                  POS=[<span className="text-[#ffd02c]">{log.latitude.toFixed(6)}</span>, <span className="text-[#ffd02c]">{log.longitude.toFixed(6)}</span>] | 
-                  ALT=<span className="text-[#ffd02c]">{log.altitudeMeters.toFixed(1)}m</span> | 
+                  POS=[<span className="text-[#5996FF]">{log.latitude.toFixed(6)}</span>, <span className="text-[#5996FF]">{log.longitude.toFixed(6)}</span>] | 
+                  ALT=<span className="text-[#5996FF]">{log.altitudeMeters.toFixed(1)}m</span> | 
                   BAT=<span className="text-emerald-300">{log.batteryPercentage.toFixed(1)}%</span> | 
-                  SIG=<span className="text-[#ffd02c]">{log.signalStrengthDbm}dBm</span> | 
+                  SIG=<span className="text-[#5996FF]">{log.signalStrengthDbm}dBm</span> | 
                   CRYPT=<span className={log.encryptionActive ? 'text-emerald-400' : 'text-red-400'}>{log.encryptionActive ? 'TRUE' : 'FALSE'}</span> | 
                   WND=<span className="text-[#d1d1d6]">{log.windSpeedKnots.toFixed(1)}kt</span>
                   {log.flightDuration && (
-                    <> | DUR=<span className="text-yellow-400 font-bold">{log.flightDuration}</span></>
+                    <> | DUR=<span className="text-blue-400 font-bold">{log.flightDuration}</span></>
                   )}
                   {log.detail && (
                     <> | MSG=<span className="text-[#d1d1d6] italic">{log.detail}</span></>

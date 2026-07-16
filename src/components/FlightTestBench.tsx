@@ -99,12 +99,12 @@ function AttitudeIndicator({ pitch, roll }: { pitch: number; roll: number }) {
           })}
         </g>
         {/* Roll pointer (fixed) */}
-        <polygon points="100,8 94,20 106,20" fill="#ffd02c" />
+        <polygon points="100,8 94,20 106,20" fill="#5996FF" />
         {/* Fixed aircraft reference */}
-        <g stroke="#ffd02c" strokeWidth="3" fill="none">
+        <g stroke="#5996FF" strokeWidth="3" fill="none">
           <line x1="60" y1="100" x2="86" y2="100" />
           <line x1="114" y1="100" x2="140" y2="100" />
-          <circle cx="100" cy="100" r="3" fill="#ffd02c" />
+          <circle cx="100" cy="100" r="3" fill="#5996FF" />
         </g>
         <circle cx="100" cy="100" r="92" fill="none" stroke="#1ebcbd" strokeOpacity="0.4" strokeWidth="2" />
       </svg>
@@ -144,7 +144,7 @@ function HeadingIndicator({ heading }: { heading: number }) {
           })}
         </g>
         {/* Fixed lubber line + aircraft */}
-        <polygon points="100,8 94,22 106,22" fill="#ffd02c" />
+        <polygon points="100,8 94,22 106,22" fill="#5996FF" />
         <g stroke="#1ebcbd" strokeWidth="2.5" fill="none">
           <line x1="100" y1="78" x2="100" y2="122" />
           <line x1="82" y1="104" x2="118" y2="104" />
@@ -197,7 +197,7 @@ function DroneModel({ pitch, roll, yaw, armed }: { pitch: number; roll: number; 
   const arm = 'absolute left-1/2 top-1/2 h-2 w-[86px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-r from-[#1ebcbd]/40 via-[#1ebcbd] to-[#1ebcbd]/40';
   const rotor = (cls: string) => (
     <div className={`absolute h-9 w-9 rounded-full border-2 ${armed ? 'border-[#8ae8e9]' : 'border-[#3a4a5a]'} ${cls}`}>
-      <div className={`absolute inset-0.5 rounded-full border-t-2 ${armed ? 'border-t-[#ffd02c] animate-spin' : 'border-t-[#5b7a8c]'}`}
+      <div className={`absolute inset-0.5 rounded-full border-t-2 ${armed ? 'border-t-[#5996FF] animate-spin' : 'border-t-[#5b7a8c]'}`}
            style={{ animationDuration: '0.18s' }} />
     </div>
   );
@@ -216,7 +216,7 @@ function DroneModel({ pitch, roll, yaw, armed }: { pitch: number; roll: number; 
         <div className={arm} style={{ transform: 'translate(-50%,-50%) rotate(-45deg)' }} />
         {/* central body */}
         <div className={`absolute left-1/2 top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-lg ${armed ? 'bg-[#12333a] border-[#1ebcbd]' : 'bg-[#141820] border-[#3a4a5a]'} border-2 shadow-[0_0_16px_rgba(30,188,189,0.4)]`}>
-          <div className={`absolute left-1/2 top-1 h-1.5 w-1.5 -translate-x-1/2 rounded-full ${armed ? 'bg-[#ffd02c]' : 'bg-[#5b7a8c]'}`} />
+          <div className={`absolute left-1/2 top-1 h-1.5 w-1.5 -translate-x-1/2 rounded-full ${armed ? 'bg-[#5996FF]' : 'bg-[#5b7a8c]'}`} />
         </div>
         {rotor('left-[6px] top-[6px]')}
         {rotor('right-[6px] top-[6px]')}
@@ -289,7 +289,7 @@ function ManualControlPad({
       <div className="text-[10px] font-mono uppercase tracking-wider text-[#8fa3b8] mb-3 flex items-center justify-between">
         <span className="flex items-center gap-1.5"><Gauge className="w-3.5 h-3.5 text-[#1ebcbd]" /> Manual Control</span>
         {!canControl && (
-          <span className="text-amber-400 normal-case tracking-normal flex items-center gap-1">
+          <span className="text-blue-400 normal-case tracking-normal flex items-center gap-1">
             <AlertTriangle className="w-3 h-3" /> {armed ? 'Take off to enable' : 'Arm to enable'}
           </span>
         )}
@@ -303,7 +303,7 @@ function ManualControlPad({
             <PlaneTakeoff className="w-3.5 h-3.5" /> Takeoff
           </button>
           <button onClick={onLand} disabled={!canFly}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 disabled:opacity-30 disabled:cursor-not-allowed font-mono text-[10px] uppercase font-bold py-2 transition-all">
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-30 disabled:cursor-not-allowed font-mono text-[10px] uppercase font-bold py-2 transition-all">
             <PlaneLanding className="w-3.5 h-3.5" /> Land
           </button>
         </div>
@@ -395,7 +395,7 @@ export default function FlightTestBench({
     return { score: Math.max(0, Math.round(100 - penalty)), rms };
   }, [rates, pitch, roll]);
 
-  const stabColor = stability.score >= 80 ? '#34d399' : stability.score >= 55 ? '#ffd02c' : '#ef4444';
+  const stabColor = stability.score >= 80 ? '#34d399' : stability.score >= 55 ? '#5996FF' : '#ef4444';
   const maneuvers = describeManeuver(pitch, roll, rate, climbRate);
   const noData = !imu && !position;
 
@@ -436,7 +436,7 @@ export default function FlightTestBench({
             </span>
           )}
           {preflight && (
-            <span className={`px-2.5 py-1 rounded-full border ${preflight.gps_lock ? 'border-emerald-500/30 text-emerald-400' : 'border-amber-500/30 text-amber-400'} bg-[#141417]`}>
+            <span className={`px-2.5 py-1 rounded-full border ${preflight.gps_lock ? 'border-emerald-500/30 text-emerald-400' : 'border-blue-500/30 text-blue-400'} bg-[#141417]`}>
               GPS {preflight.gps_lock ? `${preflight.satellites ?? '?'} sats` : 'NO FIX'}
             </span>
           )}
@@ -464,7 +464,7 @@ export default function FlightTestBench({
       />
 
       {noData && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] font-mono text-amber-300 flex items-center gap-2">
+        <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-[11px] font-mono text-blue-300 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0" /> No live IMU/telemetry yet — start the stack and this cluster animates from real /mavros/imu/data.
         </div>
       )}
@@ -495,7 +495,7 @@ export default function FlightTestBench({
           <div className="grid grid-cols-3 gap-3 text-center">
             {[
               { label: 'PITCH', v: pitch, u: '°', c: '#22d3ee' },
-              { label: 'ROLL', v: roll, u: '°', c: '#f59e0b' },
+              { label: 'ROLL', v: roll, u: '°', c: '#3f7ef7' },
               { label: 'YAW', v: yaw, u: '°', c: '#a78bfa' },
             ].map((x) => (
               <div key={x.label} className="rounded-lg bg-[#0a1220] border border-white/10 py-3">
@@ -569,14 +569,14 @@ export default function FlightTestBench({
           <div className="text-[10px] font-mono uppercase tracking-wider text-[#8fa3b8] mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5"><Activity className="w-3.5 h-3.5 text-[#1ebcbd]" /> Body-Rate Trace (±120°/s)</span>
             <span className="flex items-center gap-3">
-              <span className="text-[#f59e0b]">■ roll</span>
+              <span className="text-[#3f7ef7]">■ roll</span>
               <span className="text-[#22d3ee]">■ pitch</span>
               <span className="text-[#a78bfa]">■ yaw</span>
             </span>
           </div>
           <svg viewBox={`0 0 ${traceW} ${traceH}`} className="w-full h-28 rounded-lg bg-[#0a1220] border border-white/10">
             <line x1="0" y1={traceH / 2} x2={traceW} y2={traceH / 2} stroke="#334155" strokeWidth="1" strokeDasharray="4 4" />
-            <polyline points={toTrace('rx')} fill="none" stroke="#f59e0b" strokeWidth="1.5" />
+            <polyline points={toTrace('rx')} fill="none" stroke="#3f7ef7" strokeWidth="1.5" />
             <polyline points={toTrace('ry')} fill="none" stroke="#22d3ee" strokeWidth="1.5" />
             <polyline points={toTrace('rz')} fill="none" stroke="#a78bfa" strokeWidth="1.5" />
           </svg>

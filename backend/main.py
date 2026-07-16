@@ -28,7 +28,7 @@ from rcl_interfaces.srv import SetParameters
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import BatteryState, Image, Imu, NavSatFix
-from std_msgs.msg import Int32, String
+from std_msgs.msg import Int32, String, Float64
 
 import db
 import range_estimate
@@ -73,7 +73,7 @@ TARGET_ALTITUDE_M = 2.5
 # alike) self-abort via this exact check mid-climb, before ever reaching
 # home. 10.0m = 7.0m RTH climb + ~3m margin for transient setpoint overshoot
 # (observed up to ~8.3m actual against a 7.0m target in that same test).
-ABORT_ALTITUDE_M    = 15.0
+ABORT_ALTITUDE_M    = 20.0  # RTH_ALTITUDE(10m) + WSL EKF z-drift (3-5m observed 2026-07-13) brushed the old 15m ceiling mid-RTH
 ALT_ABORT_DEBOUNCE_S = 0.3  # must read over the ceiling continuously for
                             # this long before the safety abort fires  # was 10.0 -- RTH cruises at 7m and WSL EKF
                            # altitude drift (+2m seen live 2026-07-13 after a
@@ -115,6 +115,8 @@ class Waypoint(BaseModel):
 class MissionUpload(BaseModel):
     waypoints: List[Waypoint]
     speed_ms: Optional[float] = None
+    land_mode: Optional[str] = "aruco"   # "aruco" = vision landing | "gps" = plain AUTO.LAND, no marker
+    wait_s: Optional[float] = None       # ground wait (s) before the next takeoff
 
 
 class MarkerGenerateRequest(BaseModel):
@@ -220,10 +222,20 @@ def upload(mission: MissionUpload):
 
     # The incoming payload is now known-good — replace the stored waypoints
     # before gating so geofence_valid judges THIS mission, not the last one.
+    if mission.land_mode not in (None, "aruco", "gps"):
+        raise HTTPException(400, f"land_mode must be 'aruco' or 'gps', got {mission.land_mode!r}")
+    if mission.wait_s is not None and not (0 <= mission.wait_s <= 120):
+        raise HTTPException(400, f"wait_s must be 0-120 seconds, got {mission.wait_s}")
+
     if ros_node:
+        # land_mode/wait_s ride on each waypoint dict so the published
+        # /mission/waypoints payload stays a plain list (mission_manager and
+        # waypoint_navigator both parse it as one).
         ros_node.uploaded_waypoints = [
             {"lat": w.lat, "lon": w.lon, "alt": w.alt, "label": w.label,
-             "marker_id": w.marker_id} for w in mission.waypoints]
+             "marker_id": w.marker_id,
+             "land_mode": mission.land_mode or "aruco",
+             "wait_s": mission.wait_s} for w in mission.waypoints]
     _require_all_clear()
 
     if ros_node and ros_node.home_lat is not None:
@@ -251,6 +263,13 @@ def start():
         ros_node.alt_abort_triggered = False
         ros_node._alt_over_since   = None
         ros_node.mission_state = "IDLE"
+        # Re-publish the stored waypoints right before START: the one-shot
+        # publish in /mission/upload can be lost to DDS discovery when the
+        # upload lands seconds after node boot (seen live 2026-07-14 — both
+        # subscribers silently flew the seeded DEFAULT_B instead).
+        if getattr(ros_node, "uploaded_waypoints", None):
+            wmsg = String(); wmsg.data = json.dumps(ros_node.uploaded_waypoints)
+            ros_node.waypoints_pub.publish(wmsg)
         msg = String(); msg.data = "START"
         ros_node.cmd_pub.publish(msg)
     return {"status": "ok"}
@@ -659,6 +678,7 @@ class BridgeNode(Node):
 
         # ── Subscribers: mission/base/camera (existing) ──
         self.create_subscription(String,    "/mission/status",               self._mission_cb, 10)
+        self.create_subscription(Float64, "/mission/ground_z", self._ground_z_cb, 10)
         self.create_subscription(String,    "/drone_base/status",            self._base_cb,    10)
         self.create_subscription(NavSatFix, "/mavros/global_position/global", self._gps_cb,     sensor_qos)
         self.create_subscription(Odometry,  "/mavros/local_position/odom",    self._odom_cb,    sensor_qos)
@@ -702,6 +722,7 @@ class BridgeNode(Node):
         self._geofence_timer = None
         self.alt_abort_triggered = False
         self._alt_over_since   = None
+        self.ground_z = 0.0  # EKF z-drift snapshot broadcast by mission_manager at each takeoff
         self.home_lat = self.home_lon = None
 
         self.latest_frame  = None
@@ -897,7 +918,11 @@ class BridgeNode(Node):
         # ~30-50Hz here, so this costs at most a couple hundred ms of real
         # safety response time) -- a lone glitch does not.
         now = time.monotonic()
-        if self.altitude >= ABORT_ALTITUDE_M:
+        # Measured against mission_manager's ground snapshot: SITL EKF z
+        # accumulates several metres of drift per landing cycle, and an
+        # absolute ceiling starts false-aborting once believed ground alt
+        # approaches it (mission 3+ of a session, seen 2026-07-14).
+        if (self.altitude - self.ground_z) >= ABORT_ALTITUDE_M:
             if self._alt_over_since is None:
                 self._alt_over_since = now
             elif not self.alt_abort_triggered and (now - self._alt_over_since) >= ALT_ABORT_DEBOUNCE_S:
@@ -905,12 +930,15 @@ class BridgeNode(Node):
                 self.mission_state = "MISSION_ABORT"
                 push_from_ros_thread({"type": "mission_state", "mission_state": "MISSION_ABORT"})
                 self.get_logger().warn(
-                    f"SAFETY: altitude {self.altitude:.2f}m >= {ABORT_ALTITUDE_M}m limit "
-                    f"for {ALT_ABORT_DEBOUNCE_S}s — aborting mission")
+                    f"SAFETY: altitude {self.altitude - self.ground_z:.2f}m above ground ref "
+                    f">= {ABORT_ALTITUDE_M}m limit for {ALT_ABORT_DEBOUNCE_S}s — aborting mission")
                 abort_msg = String(); abort_msg.data = "ABORT"
                 self.cmd_pub.publish(abort_msg)
         else:
             self._alt_over_since = None
+
+    def _ground_z_cb(self, msg):
+        self.ground_z = msg.data
 
     def _imu_cb(self, msg: Imu):
         q = msg.orientation
